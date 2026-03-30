@@ -14,7 +14,7 @@ export function createClientSocket(params: {
   deviceName?: string;
   onMessage: (msg: ServerToClientMessage) => void;
   onStatus: (s: WsStatus) => void;
-}): { send: (msg: ClientToServerMessage) => void; close: () => void } {
+}): { send: (msg: ClientToServerMessage) => boolean; close: () => void } {
   params.onStatus('connecting');
 
   const ws = new WebSocket(makeWsUrl());
@@ -45,8 +45,9 @@ export function createClientSocket(params: {
 
   return {
     send(msg) {
-      if (ws.readyState !== WebSocket.OPEN) return;
+      if (ws.readyState !== WebSocket.OPEN) return false;
       ws.send(JSON.stringify(msg));
+      return true;
     },
     close() {
       ws.close();

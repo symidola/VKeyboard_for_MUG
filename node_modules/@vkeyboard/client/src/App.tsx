@@ -1,7 +1,6 @@
 import React from 'react';
 import type { ClientRole, KeyboardKey, KeyboardLayout, KeyEventMessage, ServerToClientMessage } from '@vkeyboard/shared';
-import { defaultLayout } from './layouts/default';
-import { djmax6bLayout } from './layouts/djmax6b';
+import { djmax8bLayout } from './layouts/djmax8b';
 import { createClientSocket, type WsStatus } from './ws';
 import { Keyboard } from './Keyboard';
 
@@ -24,7 +23,7 @@ function loadStorage(): LayoutStorage {
       // ignore
     }
   }
-  return { theme: 'dark', layout: defaultLayout };
+  return { theme: 'dark', layout: djmax8bLayout };
 }
 
 function saveStorage(state: LayoutStorage): void {
@@ -76,6 +75,16 @@ function normalizeLayout(input: KeyboardLayout): KeyboardLayout {
 }
 
 export function App(): React.ReactElement {
+  const [isPhone, setIsPhone] = React.useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia?.('(max-width: 820px) and (pointer: coarse)').matches ?? false;
+  });
+
+  const [isPortrait, setIsPortrait] = React.useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerHeight > window.innerWidth;
+  });
+
   const [mode, setMode] = React.useState<Mode>('keyboard');
   const [wsStatus, setWsStatus] = React.useState<WsStatus>('disconnected');
   const [clientsCount, setClientsCount] = React.useState(0);
@@ -90,6 +99,27 @@ export function App(): React.ReactElement {
   const [layoutError, setLayoutError] = React.useState<string | null>(null);
 
   const [recvLog, setRecvLog] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    const update = () => {
+      setIsPortrait(window.innerHeight > window.innerWidth);
+      setIsPhone(window.matchMedia?.('(max-width: 820px) and (pointer: coarse)').matches ?? false);
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update as any);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update as any);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!isPhone) return;
+    if (mode !== 'keyboard') setMode('keyboard');
+    if (editMode) setEditMode(false);
+    if (selectedKeyId) setSelectedKeyId(undefined);
+  }, [editMode, isPhone, mode, selectedKeyId]);
 
   React.useEffect(() => {
     document.body.dataset.theme = theme;
@@ -139,15 +169,24 @@ export function App(): React.ReactElement {
       code: k.code,
       ts: Date.now(),
     };
-    socketRef.current?.send(msg);
+    const ok = socketRef.current?.send(msg) ?? false;
+    (window as any).__VKDBG__?.log?.(ok ? 'ws:send' : 'ws:drop', {
+      action,
+      keyId: k.id,
+      label: k.label,
+      wsStatus,
+    });
   }
 
   const selectedKey = selectedKeyId
     ? layout.rows.flatMap((r) => r.keys).find((k) => k.id === selectedKeyId)
     : undefined;
 
+  const forceLandscape = isPhone && isPortrait;
+
   return (
-    <div className="container">
+    <div className={['appShell', forceLandscape ? 'forceLandscape' : ''].join(' ')}>
+      <div className={['container', isPhone ? 'isPhone' : ''].join(' ')}>
       <div className="topbar">
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className={['btn', mode === 'keyboard' ? 'primary' : ''].join(' ')} onClick={() => setMode('keyboard')}>
@@ -200,24 +239,13 @@ export function App(): React.ReactElement {
                     <button
                       className="btn"
                       onClick={() => {
-                        setLayout(normalizeLayout(djmax6bLayout));
+                        setLayout(normalizeLayout(djmax8bLayout));
                         setLayoutError(null);
                         setSelectedKeyId(undefined);
                         setLayoutJsonTouched(false);
                       }}
                     >
-                      DJMAX 6B
-                    </button>
-                    <button
-                      className="btn"
-                      onClick={() => {
-                        setLayout(normalizeLayout(defaultLayout));
-                        setLayoutError(null);
-                        setSelectedKeyId(undefined);
-                        setLayoutJsonTouched(false);
-                      }}
-                    >
-                      默认
+                      DJMAX 8B
                     </button>
                   </div>
                 </div>
@@ -370,12 +398,12 @@ export function App(): React.ReactElement {
                   <button
                     className="btn"
                     onClick={() => {
-                      setLayout(normalizeLayout(defaultLayout));
+                      setLayout(normalizeLayout(djmax8bLayout));
                       setLayoutJsonTouched(false);
                       setLayoutError(null);
                     }}
                   >
-                    恢复默认
+                    恢复 DJMAX 8B
                   </button>
                   {layoutError && <span className="badge" style={{ color: 'salmon' }}>{layoutError}</span>}
                 </div>
@@ -385,7 +413,7 @@ export function App(): React.ReactElement {
         </div>
       )}
 
-      {mode === 'receiver' && (
+      {!isPhone && mode === 'receiver' && (
         <div className="panel">
           <div style={{ fontWeight: 600, marginBottom: 8 }}>接收器日志（最近 50 条）</div>
           <textarea readOnly value={recvLog.join('\n')} />
@@ -396,6 +424,7 @@ export function App(): React.ReactElement {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

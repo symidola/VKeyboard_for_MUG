@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
 import type {
   ClientRole,
   ClientToServerMessage,
@@ -45,6 +46,7 @@ function isClientToServerMessage(value: unknown): value is ClientToServerMessage
 const PORT = Number(process.env.PORT ?? 8080);
 
 const app = express();
+app.use(express.json({ limit: '256kb' }));
 const server = http.createServer(app);
 
 const wss = new WebSocketServer({
@@ -127,9 +129,87 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-// 生产：如果 client 已 build，则由 server 托管静态文件
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '../..');
+
+function setCors(res: express.Response): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS, GET');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+app.options('/debug/log', (_req, res) => {
+  setCors(res);
+  res.status(204).end();
+});
+
+app.get('/debug/log/status', async (_req, res) => {
+  setCors(res);
+  const logDir = path.join(repoRoot, 'logs');
+  const logFile = path.join(logDir, 'vkeyboard-debug.log');
+  try {
+    const st = await fs.stat(logFile);
+    res.json({ ok: true, logFile, exists: true, size: st.size, mtimeMs: st.mtimeMs });
+  } catch {
+    res.json({ ok: true, logFile, exists: false });
+  }
+});
+
+app.get('/debug/log/download', async (_req, res) => {
+  setCors(res);
+  const logDir = path.join(repoRoot, 'logs');
+  const logFile = path.join(logDir, 'vkeyboard-debug.log');
+  try {
+    const text = await fs.readFile(logFile, 'utf8');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(text);
+  } catch (e) {
+    res.status(404).json({ ok: false, error: e instanceof Error ? e.message : 'not found' });
+  }
+});
+
+app.post('/debug/log', async (req, res) => {
+  setCors(res);
+
+  const body = req.body as any;
+  const lines: unknown = body?.lines;
+  const ua: unknown = body?.ua;
+
+  if (!Array.isArray(lines)) {
+    res.status(400).json({ ok: false, error: 'lines must be an array' });
+    return;
+  }
+
+  const safeUa = typeof ua === 'string' ? ua.slice(0, 200) : '';
+  const maxLines = 400;
+  const maxLen = 800;
+
+  const cleaned: string[] = [];
+  for (const l of lines.slice(0, maxLines)) {
+    if (typeof l !== 'string') continue;
+    cleaned.push(l.replace(/\r?\n/g, ' ').slice(0, maxLen));
+  }
+
+  if (cleaned.length === 0) {
+    res.json({ ok: true, written: 0 });
+    return;
+  }
+
+  const logDir = path.join(repoRoot, 'logs');
+  const logFile = path.join(logDir, 'vkeyboard-debug.log');
+  try {
+    await fs.mkdir(logDir, { recursive: true });
+    const prefix = `${new Date().toISOString()} ua=${safeUa} `;
+    const text = cleaned.map((l) => prefix + l).join('\n') + '\n';
+    await fs.appendFile(logFile, text, { encoding: 'utf8' });
+    res.json({ ok: true, written: cleaned.length });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e instanceof Error ? e.message : 'write failed' });
+  }
+});
+
+// 生产：如果 client 已 build，则由 server 托管静态文件
 const clientDist = path.resolve(__dirname, '../../client/dist');
 app.use(express.static(clientDist));
 app.get('*', (req, res, next) => {

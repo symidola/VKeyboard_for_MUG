@@ -1,0 +1,4 @@
+# Debug logs (written by server /debug/log)
+logs/
+server/logs/
+*.log
