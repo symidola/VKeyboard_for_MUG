@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
-import type { ClientToServerMessage, KeyEventMessage, ServerToClientMessage } from '@vkeyboard/shared';
+import type { ClientToServerMessage, KeyEventMessage, KeyStateMessage, ServerToClientMessage } from '@vkeyboard/shared';
 import { startAhk } from './ahk';
 
 type Args = {
@@ -149,6 +149,12 @@ function toAhkLine(msg: KeyEventMessage): string | null {
   return `${msg.action}\t${key}`;
 }
 
+function toAhkLineFromState(action: 'down' | 'up' | 'tap', data: { code?: string; label?: string }): string | null {
+  const key = toAhkKey(data.code, data.label);
+  if (!key) return null;
+  return `${action}\t${key}`;
+}
+
 const args = parseArgs(process.argv.slice(2));
 
 if (process.platform !== 'win32') {
@@ -170,6 +176,54 @@ const ahk = args.dryRun
 
 console.log(`[injector] connecting: ${args.server}`);
 console.log(`[injector] dryRun=${args.dryRun}`);
+
+const heldKeys = new Set<string>();
+const keySeqById = new Map<string, number>();
+let preferKeyState = false;
+
+function emitAction(action: 'down' | 'up' | 'tap', data: { keyId: string; code?: string; label?: string }): void {
+  const line = toAhkLineFromState(action, data);
+  if (!line) return;
+
+  if (args.dryRun) {
+    console.log(`[injector] ${line}`);
+    return;
+  }
+
+  ahk?.sendLine(line);
+}
+
+function applyKeyState(msg: KeyStateMessage): void {
+  preferKeyState = true;
+  const seen = new Set<string>();
+
+  for (const item of msg.keys) {
+    seen.add(item.keyId);
+    const lastSeq = keySeqById.get(item.keyId) ?? -1;
+    if (item.seq <= lastSeq) continue;
+    keySeqById.set(item.keyId, item.seq);
+
+    const held = heldKeys.has(item.keyId);
+    if (item.pressed && !held) {
+      emitAction('down', item);
+      heldKeys.add(item.keyId);
+      continue;
+    }
+
+    if (!item.pressed && held) {
+      emitAction('up', item);
+      heldKeys.delete(item.keyId);
+      continue;
+    }
+  }
+
+  // Safety: release keys that are still held locally but disappeared from snapshot.
+  for (const keyId of Array.from(heldKeys)) {
+    if (seen.has(keyId)) continue;
+    emitAction('up', { keyId, label: keyId });
+    heldKeys.delete(keyId);
+  }
+}
 
 const ws = new WebSocket(args.server, {
   perMessageDeflate: false,
@@ -194,10 +248,29 @@ ws.on('message', (data) => {
     return;
   }
 
+  if (msg.type === 'key_state') {
+    applyKeyState(msg);
+    return;
+  }
+
   if (msg.type !== 'key') return;
+
+  // Once key_state stream is available, ignore edge-only key packets to avoid
+  // race conditions between two channels with different ordering.
+  if (preferKeyState) return;
 
   const line = toAhkLine(msg);
   if (!line) return;
+
+  if (msg.action === 'down') {
+    if (heldKeys.has(msg.keyId)) return;
+    heldKeys.add(msg.keyId);
+  }
+
+  if (msg.action === 'up') {
+    if (!heldKeys.has(msg.keyId)) return;
+    heldKeys.delete(msg.keyId);
+  }
 
   if (args.dryRun) {
     console.log(`[injector] ${line}`);

@@ -40,6 +40,21 @@ function isClientToServerMessage(value: unknown): value is ClientToServerMessage
       typeof v.ts === 'number'
     );
   }
+  if (v.type === 'key_state') {
+    return (
+      typeof v.ts === 'number' &&
+      Array.isArray(v.keys) &&
+      v.keys.every(
+        (k: any) =>
+          k &&
+          typeof k === 'object' &&
+          typeof k.keyId === 'string' &&
+          typeof k.label === 'string' &&
+          typeof k.pressed === 'boolean' &&
+          typeof k.seq === 'number',
+      )
+    );
+  }
   return false;
 }
 
@@ -103,7 +118,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
-    if (raw.type === 'key') {
+    if (raw.type === 'key' || raw.type === 'key_state') {
       forwardToReceivers(ws, raw);
       return;
     }
@@ -174,14 +189,12 @@ app.post('/debug/log', async (req, res) => {
 
   const body = req.body as any;
   const lines: unknown = body?.lines;
-  const ua: unknown = body?.ua;
 
   if (!Array.isArray(lines)) {
     res.status(400).json({ ok: false, error: 'lines must be an array' });
     return;
   }
 
-  const safeUa = typeof ua === 'string' ? ua.slice(0, 200) : '';
   const maxLines = 400;
   const maxLen = 800;
 
@@ -200,7 +213,7 @@ app.post('/debug/log', async (req, res) => {
   const logFile = path.join(logDir, 'vkeyboard-debug.log');
   try {
     await fs.mkdir(logDir, { recursive: true });
-    const prefix = `${new Date().toISOString()} ua=${safeUa} `;
+    const prefix = `${new Date().toISOString()} `;
     const text = cleaned.map((l) => prefix + l).join('\n') + '\n';
     await fs.appendFile(logFile, text, { encoding: 'utf8' });
     res.json({ ok: true, written: cleaned.length });

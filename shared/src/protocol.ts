@@ -44,7 +44,22 @@ export type KeyEventMessage = {
   ts: number;
 };
 
-export type ClientToServerMessage = HelloMessage | KeyEventMessage;
+export type KeyStateItem = {
+  keyId: string;
+  label: string;
+  code?: string;
+  pressed: boolean;
+  seq: number;
+};
+
+export type KeyStateMessage = {
+  type: 'key_state';
+  ts: number;
+  keys: KeyStateItem[];
+  source?: 'edge' | 'heartbeat';
+};
+
+export type ClientToServerMessage = HelloMessage | KeyEventMessage | KeyStateMessage;
 export type ServerToClientMessage =
   | {
       type: 'state';
@@ -54,4 +69,5 @@ export type ServerToClientMessage =
         deviceName?: string;
       }>;
     }
-  | KeyEventMessage;
+  | KeyEventMessage
+  | KeyStateMessage;

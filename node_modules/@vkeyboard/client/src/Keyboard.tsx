@@ -1,57 +1,27 @@
 import React from 'react';
 import type { KeyboardKey, KeyboardLayout } from '@vkeyboard/shared';
+import { ANCHOR_O_KEY, KEY_SELECTOR } from './keyboard/constants';
+import {
+  computeAbsBounds,
+  computeAbsKeyRects,
+  getGapPx,
+  getUnitPx,
+  makeDebugLogUrl as buildDebugLogUrl,
+  readKeyboardRuntimeFlags,
+  safeSearchParams,
+} from './keyboard/helpers';
+import type { AbsBounds, AbsKeyRect } from './keyboard/types';
+import { usePointerChannel } from './keyboard/usePointerChannel';
+import { useTouchChannel } from './keyboard/useTouchChannel';
 
-function getUnitPx(layout: KeyboardLayout): number {
-  return typeof layout.unitPx === 'number' && layout.unitPx > 10 ? layout.unitPx : 52;
-}
-
-function getGapPx(layout: KeyboardLayout): number {
-  return typeof layout.gapPx === 'number' && layout.gapPx >= 0 ? layout.gapPx : 8;
-}
-
-function safeSearchParams(): URLSearchParams {
-  try {
-    return new URLSearchParams(window.location.search);
-  } catch {
-    return new URLSearchParams();
-  }
-}
-
-type AbsBounds = {
-  minX: number;
-  minY: number;
-  width: number;
-  height: number;
-  pad: number;
-};
-
-type AbsKeyRect = {
-  key: KeyboardKey;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-};
-
-function describeTarget(t: EventTarget | null): {
-  tag?: string;
-  id?: string;
-  cls?: string;
-  text?: string;
-} {
-  const el = t as HTMLElement | null;
-  if (!el || typeof (el as any).tagName !== 'string') return {};
-  const tag = el.tagName;
-  const id = el.id || undefined;
-  const cls = typeof el.className === 'string' ? el.className : undefined;
-  const text = (el.textContent || '').trim().slice(0, 40) || undefined;
-  return { tag, id, cls, text };
-}
+const VKDBG_BUILD_TAG = 'vkdbg-2026-04-04-b';
+const KEEP_ALIVE_POINTER_ID = 9100001;
 
 export function Keyboard(props: {
   layout: KeyboardLayout;
   selectedKeyId?: string;
   editMode: boolean;
+  forceAlwaysTouch?: boolean;
   onSelectKey: (keyId: string) => void;
   onKeyDown: (k: KeyboardKey) => void;
   onKeyUp: (k: KeyboardKey) => void;
@@ -61,20 +31,28 @@ export function Keyboard(props: {
   const pitch = unitPx + gapPx;
 
   const qs = React.useMemo(() => safeSearchParams(), []);
-  const debugTouch = React.useMemo(() => qs.has('debugTouch'), [qs]);
-  const debugTouchMove = React.useMemo(() => qs.has('debugTouchMove'), [qs]);
-  const logToServer = React.useMemo(() => qs.has('logToServer'), [qs]);
+  const {
+    debugTouch,
+    debugTouchMove,
+    logToServer,
+    touchPrimary,
+    simulateAlwaysTouch,
+    touchPointerFallback,
+    touchKeepAlivePress,
+    strictTouchLock,
+    suppressSyntheticClick,
+    touchGapBridgeMs,
+  } =
+    React.useMemo(() => readKeyboardRuntimeFlags(qs, props.forceAlwaysTouch), [qs, props.forceAlwaysTouch]);
 
+  // 生成调试日志上报地址，支持 URL 参数覆盖。
   const makeDebugLogUrl = React.useCallback((): string => {
-    const override = qs.get('logUrl');
-    if (override && /^https?:\/\//i.test(override)) return override;
-    const isSecure = window.location.protocol === 'https:';
-    const host = window.location.hostname;
-    const proto = isSecure ? 'https' : 'http';
-    return `${proto}://${host}:8080/debug/log`;
+    return buildDebugLogUrl(qs);
   }, [qs]);
 
   const pendingServerLinesRef = React.useRef<string[]>([]);
+  const lastServerLineRef = React.useRef<{ line: string; at: number } | null>(null);
+  const lastServerKeyEdgeAtRef = React.useRef<Map<string, number>>(new Map());
   const [dbgLines, setDbgLines] = React.useState<string[]>(() => {
     if (!debugTouch) return [];
     return [`${new Date().toLocaleTimeString()} [vkdbg] enabled search=${window.location.search || ''}`];
@@ -92,6 +70,7 @@ export function Keyboard(props: {
     });
   };
 
+  // 调试日志入口：统一格式化并按条件入本地面板/服务端缓冲队列。
   const dbg = React.useCallback(
     (event: string, data?: any) => {
       if (!debugTouch) return;
@@ -106,20 +85,77 @@ export function Keyboard(props: {
       const line = `${event}${extra}`;
       dbgPushRef.current(line);
       if (logToServer && !props.editMode) {
+        const wsStatus =
+          data && typeof data === 'object' && 'wsStatus' in (data as Record<string, unknown>)
+            ? (data as Record<string, unknown>).wsStatus
+            : undefined;
+
+        // 过滤高频/内部状态日志，保留按键链路和异常日志。
+        const skipServerLog =
+          event.startsWith('logToServer:') ||
+          (event === 'ws:send' && wsStatus === 'connected') ||
+          event === 'lostpointercapture' ||
+          event === 'touch:pointer-fallback-down' ||
+          event === 'window:pointerdown' ||
+          event === 'window:pointerup' ||
+          event === 'window:pointermove';
+        if (skipServerLog) return;
+
+        // 同一行短时间重复出现通常是噪声，避免占满上报队列。
+        const now = performance.now();
+
+        // 按键边沿去重：同键同事件极短时间重复一般是通道并发噪声。
+        if ((event === 'press' || event === 'release') && data && typeof data === 'object') {
+          const maybeKeyId = (data as Record<string, unknown>).keyId;
+          if (typeof maybeKeyId === 'string' && maybeKeyId) {
+            const sig = `${event}:${maybeKeyId}`;
+            const lastAt = lastServerKeyEdgeAtRef.current.get(sig);
+            if (lastAt != null && now - lastAt < 42) {
+              return;
+            }
+            lastServerKeyEdgeAtRef.current.set(sig, now);
+            if (lastServerKeyEdgeAtRef.current.size > 128) {
+              // 控制内存占用，保留最近写入的键边沿。
+              const first = lastServerKeyEdgeAtRef.current.keys().next().value;
+              if (first) lastServerKeyEdgeAtRef.current.delete(first);
+            }
+          }
+        }
+
+        const last = lastServerLineRef.current;
+        if (last && last.line === line && now - last.at < 120) {
+          return;
+        }
+        lastServerLineRef.current = { line, at: now };
+
         pendingServerLinesRef.current.push(line);
-        if (pendingServerLinesRef.current.length > 500) {
-          pendingServerLinesRef.current.splice(0, pendingServerLinesRef.current.length - 500);
+        if (pendingServerLinesRef.current.length > 300) {
+          pendingServerLinesRef.current.splice(0, pendingServerLinesRef.current.length - 300);
         }
       }
     },
     [debugTouch, logToServer, props.editMode],
   );
 
+  // 调试模式下将本地日志批量上报到服务端，失败时保留队列以便重试。
   React.useEffect(() => {
     if (!debugTouch || !logToServer || props.editMode) return;
     let stopped = false;
+    dbg('runtime:flags', {
+      build: VKDBG_BUILD_TAG,
+      touchPrimary,
+      touchPointerFallback,
+      touchKeepAlivePress,
+      strictTouchLock,
+      suppressSyntheticClick,
+      touchGapBridgeMs,
+      simulateAlwaysTouch,
+      debugTouchMove,
+      search: window.location.search || '',
+    });
     dbg('logToServer:on', { url: makeDebugLogUrl() });
 
+    // 周期性冲刷日志队列，降低网络请求频率。
     const flush = async () => {
       if (stopped) return;
       const batch = pendingServerLinesRef.current.splice(0, 60);
@@ -130,7 +166,7 @@ export function Keyboard(props: {
         const resp = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lines: batch, ua: navigator.userAgent }),
+          body: JSON.stringify({ lines: batch }),
           keepalive: true,
         });
         if (!resp.ok) {
@@ -151,8 +187,23 @@ export function Keyboard(props: {
       window.clearInterval(id);
       void flush();
     };
-  }, [dbg, debugTouch, logToServer, makeDebugLogUrl, props.editMode]);
+  }, [
+    dbg,
+    debugTouch,
+    debugTouchMove,
+    logToServer,
+    makeDebugLogUrl,
+    props.editMode,
+    simulateAlwaysTouch,
+    suppressSyntheticClick,
+    strictTouchLock,
+    touchGapBridgeMs,
+    touchKeepAlivePress,
+    touchPointerFallback,
+    touchPrimary,
+  ]);
 
+  // 非编辑模式下锁定视口手势，避免双指缩放或滚动干扰按键。
   React.useEffect(() => {
     if (props.editMode) return;
 
@@ -164,11 +215,24 @@ export function Keyboard(props: {
       if (ev.ctrlKey) ev.preventDefault();
     };
 
+    const isKeyboardTarget = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null;
+      return !!el?.closest?.('.kb');
+    };
+
+    const onClickCapture = (ev: MouseEvent) => {
+      if (!suppressSyntheticClick) return;
+      if (!isKeyboardTarget(ev.target)) return;
+      if (ev.cancelable) ev.preventDefault();
+      ev.stopPropagation();
+    };
+
     document.addEventListener('gesturestart', onGesture as any, { passive: false } as any);
     document.addEventListener('gesturechange', onGesture as any, { passive: false } as any);
     document.addEventListener('gestureend', onGesture as any, { passive: false } as any);
     document.addEventListener('touchmove', onTouchMove, { passive: false });
     window.addEventListener('wheel', onWheel, { passive: false } as any);
+    document.addEventListener('click', onClickCapture, true);
 
     return () => {
       document.body.classList.remove('vkLockViewport');
@@ -177,25 +241,99 @@ export function Keyboard(props: {
       document.removeEventListener('gestureend', onGesture as any);
       document.removeEventListener('touchmove', onTouchMove as any);
       window.removeEventListener('wheel', onWheel as any);
+      document.removeEventListener('click', onClickCapture, true);
     };
-  }, [props.editMode]);
+  }, [props.editMode, suppressSyntheticClick]);
 
   const allKeys = React.useMemo(() => props.layout.rows.flatMap((r) => r.keys), [props.layout]);
-  const keyById = React.useMemo(() => new Map(allKeys.map((k) => [k.id, k])), [allKeys]);
+  const keyById = React.useMemo(() => {
+    const map = new Map(allKeys.map((k) => [k.id, k]));
+    map.set(ANCHOR_O_KEY.id, ANCHOR_O_KEY);
+    return map;
+  }, [allKeys]);
   const hasAbsolute = allKeys.some((k) => typeof k.x === 'number' || typeof k.y === 'number');
 
   // Multi-touch: track which pointer is holding which key.
   const activePointersRef = React.useRef<Map<number, string>>(new Map());
   const pressedKeysRef = React.useRef<Set<string>>(new Set());
+  const mutedKeyIdsRef = React.useRef<Set<string>>(new Set());
+  const lastTouchActiveAtRef = React.useRef<number>(0);
+  const fallbackTouchPointerPidsRef = React.useRef<Set<number>>(new Set());
   const [pressedKeys, setPressedKeys] = React.useState<Set<string>>(() => new Set());
 
+  // 锚点键仅用于输入链路保活，不向后端发真实按键。
+  React.useEffect(() => {
+    mutedKeyIdsRef.current.add(ANCHOR_O_KEY.id);
+    return () => {
+      mutedKeyIdsRef.current.delete(ANCHOR_O_KEY.id);
+    };
+  }, []);
+
+  // 查询某个 key 是否处于按下态。
   const isKeyPressed = React.useCallback((keyId: string): boolean => {
     return pressedKeysRef.current.has(keyId);
   }, []);
 
+  // 触发按下事件前先过滤静默键。
+  const emitKeyDown = React.useCallback(
+    (key: KeyboardKey) => {
+      if (mutedKeyIdsRef.current.has(key.id)) return;
+      props.onKeyDown(key);
+    },
+    [props],
+  );
+
+  // 触发抬起事件前先过滤静默键。
+  const emitKeyUp = React.useCallback(
+    (key: KeyboardKey) => {
+      if (mutedKeyIdsRef.current.has(key.id)) return;
+      props.onKeyUp(key);
+    },
+    [props],
+  );
+
+  // 处理 pointer 按下/滑移到新键：必要时先释放旧键，再按下新键。
   const pressKey = React.useCallback(
     (pointerId: number, key: KeyboardKey) => {
+      const prevKeyId = activePointersRef.current.get(pointerId);
+      if (prevKeyId === key.id) {
+        return;
+      }
+      if (prevKeyId) {
+        activePointersRef.current.delete(pointerId);
+        let prevStillHeld = false;
+        for (const kid of activePointersRef.current.values()) {
+          if (kid === prevKeyId) {
+            prevStillHeld = true;
+            break;
+          }
+        }
+
+        if (!prevStillHeld && isKeyPressed(prevKeyId)) {
+          pressedKeysRef.current.delete(prevKeyId);
+          setPressedKeys((prev) => {
+            if (!prev.has(prevKeyId)) return prev;
+            const next = new Set(prev);
+            next.delete(prevKeyId);
+            return next;
+          });
+
+          const prevKey = keyById.get(prevKeyId);
+          if (debugTouch) {
+            dbg('release:remap', {
+              pointerId,
+              fromKeyId: prevKeyId,
+              fromLabel: prevKey?.label,
+              toKeyId: key.id,
+              toLabel: key.label,
+            });
+          }
+          if (prevKey) props.onKeyUp(prevKey);
+        }
+      }
+
       activePointersRef.current.set(pointerId, key.id);
+
       if (isKeyPressed(key.id)) return;
 
       pressedKeysRef.current.add(key.id);
@@ -207,18 +345,19 @@ export function Keyboard(props: {
       });
 
       if (debugTouch) dbg('press', { pointerId, keyId: key.id, label: key.label });
-      props.onKeyDown(key);
+      emitKeyDown(key);
     },
-    [dbg, debugTouch, isKeyPressed, props],
+    [dbg, debugTouch, emitKeyDown, isKeyPressed, keyById, props],
   );
 
+  // 释放指定 pointer 对应的键；若该键仍被其他 pointer 持有则不抬起。
   const releasePointer = React.useCallback(
     (pointerId: number) => {
       const keyId = activePointersRef.current.get(pointerId);
       if (!keyId) return;
       activePointersRef.current.delete(pointerId);
 
-      // Only release when no other pointer holds this key.
+      // 只有当没有其他 pointer 持有该键时才真正抬起。
       for (const kid of activePointersRef.current.values()) {
         if (kid === keyId) return;
       }
@@ -234,11 +373,20 @@ export function Keyboard(props: {
 
       const key = keyById.get(keyId);
       if (debugTouch) dbg('release', { pointerId, keyId, label: key?.label });
-      if (key) props.onKeyUp(key);
+      if (key) emitKeyUp(key);
     },
-    [dbg, debugTouch, isKeyPressed, keyById, props],
+    [dbg, debugTouch, emitKeyUp, isKeyPressed, keyById, props],
   );
 
+  // 释放由 pointer-fallback 分配的临时 pointer。
+  const releaseFallbackTouchPointers = React.useCallback(() => {
+    for (const pid of fallbackTouchPointerPidsRef.current) {
+      releasePointer(pid);
+    }
+    fallbackTouchPointerPidsRef.current.clear();
+  }, [releasePointer]);
+
+  // 紧急释放全部按键（失焦/切后台等场景）。
   const releaseAll = React.useCallback(
     (reason: string) => {
       const pressed = Array.from(pressedKeysRef.current.values());
@@ -249,13 +397,39 @@ export function Keyboard(props: {
       if (debugTouch) dbg('releaseAll', { reason, pressed });
       for (const keyId of pressed) {
         const key = keyById.get(keyId);
-        if (key) props.onKeyUp(key);
+        if (key) emitKeyUp(key);
+      }
+
+      // 可选保活：避免进入“零按下空窗”。
+      if (touchKeepAlivePress && !props.editMode) {
+        pressKey(KEEP_ALIVE_POINTER_ID, ANCHOR_O_KEY);
       }
     },
-    [dbg, debugTouch, keyById, props],
+    [dbg, debugTouch, emitKeyUp, keyById, pressKey, props.editMode, touchKeepAlivePress],
   );
 
+  // 可选保活通道：持续维持一个静默按下，验证是否由“空窗期”触发失灵。
+  React.useEffect(() => {
+    if (props.editMode || !touchKeepAlivePress) {
+      releasePointer(KEEP_ALIVE_POINTER_ID);
+      return;
+    }
+
+    const ensureKeepAlive = () => {
+      pressKey(KEEP_ALIVE_POINTER_ID, ANCHOR_O_KEY);
+    };
+
+    ensureKeepAlive();
+    const id = window.setInterval(ensureKeepAlive, 180);
+
+    return () => {
+      window.clearInterval(id);
+      releasePointer(KEEP_ALIVE_POINTER_ID);
+    };
+  }, [pressKey, props.editMode, releasePointer, touchKeepAlivePress]);
+
   // Scale-to-fit for absolute layouts (tablet-friendly).
+  const kbRootRef = React.useRef<HTMLDivElement | null>(null);
   const wrapRef = React.useRef<HTMLDivElement | null>(null);
   const kbAbsRef = React.useRef<HTMLDivElement | null>(null);
   const [wrapWidth, setWrapWidth] = React.useState<number>(0);
@@ -272,90 +446,79 @@ export function Keyboard(props: {
     return () => ro.disconnect();
   }, []);
 
-  const absBounds: AbsBounds | null = React.useMemo(() => {
-    if (!hasAbsolute) return null;
-    let minX = 0;
-    let minY = 0;
-    let maxX = 0;
-    let maxY = 0;
+  const absBounds: AbsBounds | null = React.useMemo(
+    () => computeAbsBounds(allKeys, hasAbsolute, gapPx, pitch, unitPx),
+    [allKeys, gapPx, hasAbsolute, pitch, unitPx],
+  );
 
-    for (const k of allKeys) {
-      const x = typeof k.x === 'number' ? k.x : 0;
-      const y = typeof k.y === 'number' ? k.y : 0;
-      const w = Math.max(0.25, k.width);
-      const h = Math.max(0.25, k.height);
+  const absKeyRects: AbsKeyRect[] | null = React.useMemo(
+    () => computeAbsKeyRects(allKeys, hasAbsolute, absBounds, unitPx, gapPx, pitch),
+    [absBounds, allKeys, gapPx, hasAbsolute, pitch, unitPx],
+  );
 
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x + w);
-      maxY = Math.max(maxY, y + h);
-    }
+  // 通过目标元素+坐标综合命中按键，支持最近邻兜底和绝对布局命中。
+  const resolveKeyFromClientPoint = React.useCallback(
+    (
+      xClient: number,
+      yClient: number,
+      target?: EventTarget | null,
+      options?: { preferTarget?: boolean; preferNearest?: boolean; nearestTolerancePx?: number },
+    ): KeyboardKey | null => {
+      const preferTarget = options?.preferTarget ?? true;
+      const preferNearest = options?.preferNearest ?? true;
 
-    const pad = gapPx;
-    const width = (maxX - minX) * pitch - gapPx + pad * 2;
-    const height = (maxY - minY) * pitch - gapPx + pad * 2;
-    return {
-      minX,
-      minY,
-      width: Math.max(200, Math.ceil(width)),
-      height: Math.max(unitPx, Math.ceil(height)),
-      pad,
-    };
-  }, [allKeys, gapPx, hasAbsolute, pitch, unitPx]);
+      if (preferTarget) {
+        const fromTarget = (target as HTMLElement | null)?.closest?.(KEY_SELECTOR) as HTMLElement | null;
+        const fromTargetKeyId = fromTarget?.dataset?.keyid;
+        if (fromTargetKeyId) {
+          const hit = keyById.get(fromTargetKeyId);
+          if (hit) return hit;
+        }
+      }
 
-  const absKeyRects: AbsKeyRect[] | null = React.useMemo(() => {
-    if (!hasAbsolute || !absBounds) return null;
-    return allKeys.map((k) => {
-      const w = Math.max(0.25, k.width);
-      const h = Math.max(0.25, k.height);
-      const x = typeof k.x === 'number' ? k.x : 0;
-      const y = typeof k.y === 'number' ? k.y : 0;
-      const keyWidthPx = unitPx * w + gapPx * (w - 1);
-      const keyHeightPx = unitPx * h;
-      return {
-        key: k,
-        left: absBounds.pad + (x - absBounds.minX) * pitch,
-        top: absBounds.pad + (y - absBounds.minY) * pitch,
-        width: keyWidthPx,
-        height: keyHeightPx,
-      };
-    });
-  }, [absBounds, allKeys, gapPx, hasAbsolute, pitch, unitPx]);
+      const fromPoint = document
+        .elementFromPoint(xClient, yClient)
+        ?.closest?.(KEY_SELECTOR) as HTMLElement | null;
+      const fromPointKeyId = fromPoint?.dataset?.keyid;
+      if (fromPointKeyId) {
+        const hit = keyById.get(fromPointKeyId);
+        if (hit) return hit;
+      }
 
-  React.useEffect(() => {
-    if (props.editMode) return;
+      if (preferNearest) {
+        const nodes = document.querySelectorAll(KEY_SELECTOR);
+        let bestDom: { key: KeyboardKey; dist2: number } | null = null;
+        for (const node of Array.from(nodes)) {
+          const keyId = (node as HTMLElement).dataset?.keyid;
+          if (!keyId) continue;
+          const key = keyById.get(keyId);
+          if (!key) continue;
+          const rect = (node as HTMLElement).getBoundingClientRect();
+          if (!rect.width || !rect.height) continue;
 
-    const onUp = (ev: PointerEvent) => {
-      releasePointer(ev.pointerId);
-    };
+          const dx = xClient < rect.left ? rect.left - xClient : xClient > rect.right ? xClient - rect.right : 0;
+          const dy = yClient < rect.top ? rect.top - yClient : yClient > rect.bottom ? yClient - rect.bottom : 0;
+          const dist2 = dx * dx + dy * dy;
+          if (!bestDom || dist2 < bestDom.dist2) bestDom = { key, dist2 };
+          if (dist2 === 0) break;
+        }
 
-    const onBlur = () => {
-      releaseAll('blur');
-    };
+        if (bestDom) {
+          const domTol = Math.max(options?.nearestTolerancePx ?? 0, Math.max(gapPx + 10, 18));
+          if (bestDom.dist2 <= domTol * domTol) return bestDom.key;
+        }
+      }
 
-    const onVis = () => {
-      if (document.visibilityState === 'hidden') releaseAll('hidden');
-    };
-
-    const onGlobalDownCapture = (ev: PointerEvent) => {
-      if (!hasAbsolute || !absBounds || !absKeyRects) return;
-      if (activePointersRef.current.has(ev.pointerId)) return;
+      if (!hasAbsolute || !absBounds || !absKeyRects) return null;
       const el = kbAbsRef.current;
-      if (!el) return;
-
-      const target = ev.target as HTMLElement | null;
-      if (target && (target as any).closest?.('button.key')) return;
+      if (!el) return null;
 
       const rect = el.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-
-      const xClient = ev.clientX;
-      const yClient = ev.clientY;
-      if (xClient < rect.left || xClient > rect.right || yClient < rect.top || yClient > rect.bottom) return;
+      if (!rect.width || !rect.height) return null;
 
       const nx = (xClient - rect.left) / rect.width;
       const ny = (yClient - rect.top) / rect.height;
-      if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
+      if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
 
       const x = nx * absBounds.width;
       const y = ny * absBounds.height;
@@ -369,67 +532,48 @@ export function Keyboard(props: {
         if (dist2 === 0) break;
       }
 
-      if (!best) return;
+      if (!best) return null;
       const tol = Math.max(absBounds.pad, gapPx, 12) + 6;
-      if (best.dist2 > tol * tol) return;
+      return best.dist2 <= tol * tol ? best.key : null;
+    },
+    [absBounds, absKeyRects, gapPx, hasAbsolute, keyById],
+  );
 
-      try {
-        el.setPointerCapture?.(ev.pointerId);
-      } catch {
-        // ignore
-      }
+  usePointerChannel({
+    editMode: props.editMode,
+    touchPointerFallback,
+    debugTouch,
+    debugTouchMove,
+    dbg,
+    lastTouchActiveAtRef,
+    fallbackTouchPointerPidsRef,
+    kbAbsRef,
+    resolveKeyFromClientPoint,
+    pressKey,
+    releasePointer,
+    releaseAll,
+    releaseFallbackTouchPointers,
+  });
 
-      if (debugTouch) {
-        dbg('abs:win-press', {
-          pointerId: ev.pointerId,
-          keyId: best.key.id,
-          label: best.key.label,
-          dist2: Math.round(best.dist2),
-          target: describeTarget(ev.target),
-        });
-      }
+  useTouchChannel({
+    editMode: props.editMode,
+    touchPrimary,
+    simulateAlwaysTouch,
+    keyById,
+    debugTouch,
+    dbg,
+    touchGapBridgeMs,
+    resolveKeyFromClientPoint,
+    pressKey,
+    releasePointer,
+    releaseFallbackTouchPointers,
+    lastTouchActiveAtRef,
+    fallbackTouchPointerPidsRef,
+    kbRootRef,
+    strictTouchLock,
+  });
 
-      pressKey(ev.pointerId, best.key);
-    };
-
-    const onDbgEvent = (ev: PointerEvent) => {
-      if (!debugTouch) return;
-      if (ev.type === 'pointermove' && !debugTouchMove) return;
-      const data: any = {
-        type: ev.type,
-        pointerId: ev.pointerId,
-        pointerType: (ev as any).pointerType,
-        buttons: (ev as any).buttons,
-        x: Math.round(ev.clientX),
-        y: Math.round(ev.clientY),
-        target: describeTarget(ev.target),
-      };
-      dbg(`window:${ev.type}`, data);
-    };
-
-    window.addEventListener('pointerdown', onGlobalDownCapture, { capture: true } as any);
-    window.addEventListener('pointerdown', onDbgEvent, { passive: true } as any);
-    window.addEventListener('pointermove', onDbgEvent, { passive: true } as any);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-    window.addEventListener('blur', onBlur);
-    document.addEventListener('visibilitychange', onVis);
-    window.addEventListener('pointerup', onDbgEvent, { passive: true } as any);
-    window.addEventListener('pointercancel', onDbgEvent, { passive: true } as any);
-
-    return () => {
-      window.removeEventListener('pointerdown', onGlobalDownCapture as any, true as any);
-      window.removeEventListener('pointerdown', onDbgEvent as any);
-      window.removeEventListener('pointermove', onDbgEvent as any);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-      window.removeEventListener('blur', onBlur);
-      document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('pointerup', onDbgEvent as any);
-      window.removeEventListener('pointercancel', onDbgEvent as any);
-    };
-  }, [absBounds, absKeyRects, dbg, debugTouch, debugTouchMove, gapPx, hasAbsolute, pressKey, props.editMode, releaseAll, releasePointer]);
-
+  // 暴露全局调试对象，便于外部快速抓取触摸链路状态。
   React.useEffect(() => {
     if (!debugTouch) return;
     (window as any).__VKDBG__ = {
@@ -446,6 +590,7 @@ export function Keyboard(props: {
     };
   }, [dbg, dbgLines, debugTouch]);
 
+  // 调试面板：仅在 debugTouch 开启时显示。
   const dbgPanel = debugTouch ? (
     <div
       style={{
@@ -478,12 +623,14 @@ export function Keyboard(props: {
     </div>
   ) : null;
 
+  // 统一渲染单个按键，并绑定按压/释放/编辑选择事件。
   const renderKeyButton = (k: KeyboardKey, style: React.CSSProperties) => {
     const isSelected = props.editMode && props.selectedKeyId === k.id;
     const isPressed = pressedKeys.has(k.id);
     return (
       <button
         key={k.id}
+        data-keyid={k.id}
         className={['key', isSelected ? 'selected' : '', isPressed ? 'pressed' : ''].join(' ')}
         style={style}
         onContextMenu={(ev) => ev.preventDefault()}
@@ -491,6 +638,10 @@ export function Keyboard(props: {
           if (props.editMode) props.onSelectKey(k.id);
         }}
         onPointerDown={(ev) => {
+          if ((ev as any).pointerType === 'touch') {
+            ev.preventDefault();
+            return;
+          }
           ev.preventDefault();
           (ev.currentTarget as HTMLElement).setPointerCapture?.(ev.pointerId);
           if (props.editMode) {
@@ -523,7 +674,7 @@ export function Keyboard(props: {
 
   return (
     <>
-      <div className="kb" style={{ overflowX: 'auto' }}>
+      <div ref={kbRootRef} className="kb" style={{ overflowX: 'auto' }}>
         {hasAbsolute && absBounds ? (
           <div ref={wrapRef} style={{ width: '100%', overflowX: 'auto' }}>
             {(() => {
@@ -567,32 +718,51 @@ export function Keyboard(props: {
 
                       return renderKeyButton(k, style);
                     })}
+                    {renderKeyButton(ANCHOR_O_KEY, {
+                      position: 'absolute',
+                      left: `${Math.max(1, Math.floor(absBounds.pad * 0.15))}px`,
+                      top: `${Math.max(0, absBounds.height - Math.max(18, Math.round(unitPx * 0.52)) - 1)}px`,
+                      width: `${Math.max(18, Math.round(unitPx * 0.52))}px`,
+                      height: `${Math.max(18, Math.round(unitPx * 0.52))}px`,
+                    })}
                   </div>
                 </div>
               );
             })()}
           </div>
         ) : (
-          props.layout.rows.map((row) => (
-            <div className="kbRow" key={row.id} style={{ gap: `${gapPx}px` }}>
-              {row.keys.map((k) => {
-                const w = Math.max(0.25, k.width);
-                const h = Math.max(0.25, k.height);
-                const keyWidthPx = unitPx * w + gapPx * (w - 1);
-                const keyHeightPx = unitPx * h;
-                const gapBefore = typeof k.gapBefore === 'number' ? k.gapBefore : 0;
-                const marginLeftPx = gapBefore > 0 ? gapBefore * pitch : 0;
+          <>
+            {props.layout.rows.map((row) => (
+              <div className="kbRow" key={row.id} style={{ gap: `${gapPx}px` }}>
+                {row.keys.map((k) => {
+                  const w = Math.max(0.25, k.width);
+                  const h = Math.max(0.25, k.height);
+                  const keyWidthPx = unitPx * w + gapPx * (w - 1);
+                  const keyHeightPx = unitPx * h;
+                  const gapBefore = typeof k.gapBefore === 'number' ? k.gapBefore : 0;
+                  const marginLeftPx = gapBefore > 0 ? gapBefore * pitch : 0;
 
-                const style: React.CSSProperties = {
-                  width: `${keyWidthPx}px`,
-                  height: `${keyHeightPx}px`,
-                  marginLeft: marginLeftPx ? `${marginLeftPx}px` : undefined,
-                };
+                  const style: React.CSSProperties = {
+                    width: `${keyWidthPx}px`,
+                    height: `${keyHeightPx}px`,
+                    marginLeft: marginLeftPx ? `${marginLeftPx}px` : undefined,
+                  };
 
-                return renderKeyButton(k, style);
+                  return renderKeyButton(k, style);
+                })}
+              </div>
+            ))}
+            <div
+              className="kbRow"
+              key="__anchor_o_row__"
+              style={{ gap: `${gapPx}px`, justifyContent: 'flex-start', marginTop: `${Math.max(4, Math.floor(gapPx * 0.8))}px` }}
+            >
+              {renderKeyButton(ANCHOR_O_KEY, {
+                width: `${Math.max(18, Math.round(unitPx * 0.52))}px`,
+                height: `${Math.max(18, Math.round(unitPx * 0.52))}px`,
               })}
             </div>
-          ))
+          </>
         )}
       </div>
       {dbgPanel}
