@@ -392,6 +392,55 @@ export function Keyboard(props: {
       const preferTarget = options?.preferTarget ?? true;
       const preferNearest = options?.preferNearest ?? true;
 
+      const absHit = (): KeyboardKey | null => {
+        if (!hasAbsolute || !absBounds || !absKeyRects) return null;
+        const el = kbAbsRef.current;
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+        const nx = (xClient - rect.left) / rect.width;
+        const ny = (yClient - rect.top) / rect.height;
+        if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
+        const x = nx * absBounds.width;
+        const y = ny * absBounds.height;
+        // Circle keys sorted first so Don wins over overlapping Ka rect.
+        const sorted = [...absKeyRects].sort((a, b) => {
+          const ai = a.key.shape === 'circle' ? 0 : 1;
+          const bi = b.key.shape === 'circle' ? 0 : 1;
+          return ai - bi;
+        });
+        let best: { key: KeyboardKey; dist2: number } | null = null;
+        for (const r of sorted) {
+          let dx: number;
+          let dy: number;
+          if (r.key.shape === 'circle') {
+            const cx = r.left + r.width / 2;
+            const cy = r.top + r.height / 2;
+            const radius = Math.min(r.width, r.height) / 2;
+            const ndx = (x - cx) / radius;
+            const ndy = (y - cy) / radius;
+            const inCircle = ndx * ndx + ndy * ndy <= 1;
+            const semiOk = !r.key.semiX || (r.key.semiX === 'left' ? x < cx : x >= cx);
+            if (inCircle && semiOk) { dx = 0; dy = 0; }
+            else if (inCircle && !semiOk) { continue; }
+            else {
+              const d = Math.sqrt(ndx * ndx + ndy * ndy);
+              dx = (ndx / d - 1) * radius;
+              dy = (ndy / d - 1) * radius;
+            }
+          } else {
+            dx = x < r.left ? r.left - x : x > r.left + r.width ? x - (r.left + r.width) : 0;
+            dy = y < r.top ? r.top - y : y > r.top + r.height ? y - (r.top + r.height) : 0;
+          }
+          const dist2 = dx * dx + dy * dy;
+          if (!best || dist2 < best.dist2) best = { key: r.key, dist2 };
+          if (dist2 === 0) break;
+        }
+        if (!best) return null;
+        const tol = Math.max(absBounds.pad, gapPx, 12) + 6;
+        return best.dist2 <= tol * tol ? best.key : null;
+      };
+
       if (preferTarget) {
         const fromTarget = (target as HTMLElement | null)?.closest?.(KEY_SELECTOR) as HTMLElement | null;
         const fromTargetKeyId = fromTarget?.dataset?.keyid;
@@ -410,6 +459,11 @@ export function Keyboard(props: {
         if (hit && !hit.semiX) return hit;
       }
 
+      // Absolute hit test runs before nearest-DOM so circle+semiX keys
+      // resolve via coordinates, not DOM stacking order.
+      const absResult = absHit();
+      if (absResult) return absResult;
+
       if (preferNearest) {
         const nodes = document.querySelectorAll(KEY_SELECTOR);
         let bestDom: { key: KeyboardKey; dist2: number } | null = null;
@@ -418,7 +472,7 @@ export function Keyboard(props: {
           if (!keyId) continue;
           const key = keyById.get(keyId);
           if (!key) continue;
-          if (key.semiX) continue; // defer to absolute-layout coordinate check
+          if (key.semiX) continue;
           const rect = (node as HTMLElement).getBoundingClientRect();
           if (!rect.width || !rect.height) continue;
 
@@ -435,54 +489,7 @@ export function Keyboard(props: {
         }
       }
 
-      if (!hasAbsolute || !absBounds || !absKeyRects) return null;
-      const el = kbAbsRef.current;
-      if (!el) return null;
-
-      const rect = el.getBoundingClientRect();
-      if (!rect.width || !rect.height) return null;
-
-      const nx = (xClient - rect.left) / rect.width;
-      const ny = (yClient - rect.top) / rect.height;
-      if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
-
-      const x = nx * absBounds.width;
-      const y = ny * absBounds.height;
-
-      let best: { key: KeyboardKey; dist2: number } | null = null;
-      for (const r of absKeyRects) {
-        let dx: number;
-        let dy: number;
-        if (r.key.shape === 'circle') {
-          const cx = r.left + r.width / 2;
-          const cy = r.top + r.height / 2;
-          const radius = Math.min(r.width, r.height) / 2;
-          const ndx = (x - cx) / radius;
-          const ndy = (y - cy) / radius;
-          const inCircle = ndx * ndx + ndy * ndy <= 1;
-          const semiOk = !r.key.semiX || (r.key.semiX === 'left' ? x < cx : x >= cx);
-          if (inCircle && semiOk) {
-            dx = 0;
-            dy = 0;
-          } else if (inCircle && !semiOk) {
-            continue; // wrong semicircle half — skip this key
-          } else {
-            const dist = Math.sqrt(ndx * ndx + ndy * ndy);
-            dx = (ndx / dist - 1) * radius;
-            dy = (ndy / dist - 1) * radius;
-          }
-        } else {
-          dx = x < r.left ? r.left - x : x > r.left + r.width ? x - (r.left + r.width) : 0;
-          dy = y < r.top ? r.top - y : y > r.top + r.height ? y - (r.top + r.height) : 0;
-        }
-        const dist2 = dx * dx + dy * dy;
-        if (!best || dist2 < best.dist2) best = { key: r.key, dist2 };
-        if (dist2 === 0) break;
-      }
-
-      if (!best) return null;
-      const tol = Math.max(absBounds.pad, gapPx, 12) + 6;
-      return best.dist2 <= tol * tol ? best.key : null;
+      return null;
     },
     [absBounds, absKeyRects, gapPx, hasAbsolute, keyById],
   );
