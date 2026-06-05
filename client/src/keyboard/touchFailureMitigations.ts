@@ -14,7 +14,7 @@ export type TouchFailureMitigationConfig = {
   touchNearestTolerancePx: number;
 };
 
-// Keep all touch-failure mitigation logic disabled for now.
+// Keep all touch-failure mitigation logic disabled for now (non-iOS baseline).
 export const TOUCH_FAILURE_MITIGATION_DISABLED: TouchFailureMitigationConfig = {
   simulateAlwaysTouch: false,
   touchPointerFallback: false,
@@ -27,6 +27,28 @@ export const TOUCH_FAILURE_MITIGATION_DISABLED: TouchFailureMitigationConfig = {
   touchSessionGraceMs: 0,
   touchNearestTolerancePx: 42,
 };
+
+function isIOS(): boolean {
+  return /iPad|iPhone|iPod/i.test(typeof navigator !== 'undefined' ? navigator.userAgent || '' : '');
+}
+
+export function getTouchMitigationConfig(): TouchFailureMitigationConfig {
+  if (isIOS()) {
+    return {
+      simulateAlwaysTouch: false,
+      touchPointerFallback: true,
+      touchKeepAlivePress: false,
+      strictTouchLock: false,
+      suppressSyntheticClick: false,
+      touchGapBridgeMs: 0,
+      releaseMissThreshold: 3,
+      vanishedGraceMs: 22,
+      touchSessionGraceMs: 0,
+      touchNearestTolerancePx: 42,
+    };
+  }
+  return TOUCH_FAILURE_MITIGATION_DISABLED;
+}
 
 // Archive parser for previous experiments. It is intentionally not wired now.
 export function readTouchFailureMitigationsArchive(

@@ -1,7 +1,7 @@
 import React from 'react';
 import type { KeyboardKey } from '@vkeyboard/shared';
 import { KEY_SELECTOR } from './constants';
-import { TOUCH_FAILURE_MITIGATION_DISABLED } from './touchFailureMitigations';
+import { getTouchMitigationConfig } from './touchFailureMitigations';
 
 type ResolveKeyOptions = {
   preferTarget?: boolean;
@@ -55,9 +55,10 @@ export function useTouchChannel(params: UseTouchChannelParams): void {
     let nextTouchPid = 1000000;
     let unresolvedFrames = new Map<number, number>();
     let vanishedAt = new Map<number, number>();
-    const releaseMissThreshold = TOUCH_FAILURE_MITIGATION_DISABLED.releaseMissThreshold;
-    const touchNearestTolerancePx = TOUCH_FAILURE_MITIGATION_DISABLED.touchNearestTolerancePx;
-    const vanishedGraceMs = TOUCH_FAILURE_MITIGATION_DISABLED.vanishedGraceMs;
+    const mitigations = getTouchMitigationConfig();
+    const releaseMissThreshold = mitigations.releaseMissThreshold;
+    const touchNearestTolerancePx = mitigations.touchNearestTolerancePx;
+    const vanishedGraceMs = mitigations.vanishedGraceMs;
 
     const toSnapshot = (touches: TouchList): TouchSnapshot[] => {
       return Array.from(touches).map((t) => ({

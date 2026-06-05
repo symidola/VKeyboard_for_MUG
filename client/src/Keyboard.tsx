@@ -13,7 +13,7 @@ import {
 import type { AbsBounds, AbsKeyRect } from './keyboard/types';
 import { usePointerChannel } from './keyboard/usePointerChannel';
 import { useTouchChannel } from './keyboard/useTouchChannel';
-import { TOUCH_FAILURE_MITIGATION_DISABLED } from './keyboard/touchFailureMitigations';
+import { TOUCH_FAILURE_MITIGATION_DISABLED, getTouchMitigationConfig } from './keyboard/touchFailureMitigations';
 
 const VKDBG_BUILD_TAG = 'vkdbg-2026-04-04-b';
 
@@ -38,6 +38,7 @@ export function Keyboard(props: {
     touchPrimary,
   } =
     React.useMemo(() => readKeyboardRuntimeFlags(qs, props.forceAlwaysTouch), [qs, props.forceAlwaysTouch]);
+  const mitigationConfig = React.useMemo(() => getTouchMitigationConfig(), []);
 
   // 生成调试日志上报地址，支持 URL 参数覆盖。
   const makeDebugLogUrl = React.useCallback((): string => {
@@ -238,7 +239,7 @@ export function Keyboard(props: {
       if (mutedKeyIdsRef.current.has(key.id)) return;
       props.onKeyDown(key);
     },
-    [props],
+    [props.onKeyDown],
   );
 
   // 触发抬起事件前先过滤静默键。
@@ -247,7 +248,7 @@ export function Keyboard(props: {
       if (mutedKeyIdsRef.current.has(key.id)) return;
       props.onKeyUp(key);
     },
-    [props],
+    [props.onKeyUp],
   );
 
   // 处理 pointer 按下/滑移到新键：必要时先释放旧键，再按下新键。
@@ -305,7 +306,7 @@ export function Keyboard(props: {
       if (debugTouch) dbg('press', { pointerId, keyId: key.id, label: key.label });
       emitKeyDown(key);
     },
-    [dbg, debugTouch, emitKeyDown, isKeyPressed, keyById, props],
+    [dbg, debugTouch, emitKeyDown, isKeyPressed, keyById, props.onKeyUp],
   );
 
   // 释放指定 pointer 对应的键；若该键仍被其他 pointer 持有则不抬起。
@@ -333,7 +334,7 @@ export function Keyboard(props: {
       if (debugTouch) dbg('release', { pointerId, keyId, label: key?.label });
       if (key) emitKeyUp(key);
     },
-    [dbg, debugTouch, emitKeyUp, isKeyPressed, keyById, props],
+    [dbg, debugTouch, emitKeyUp, isKeyPressed, keyById],
   );
 
   // 紧急释放全部按键（失焦/切后台等场景）。
@@ -474,6 +475,7 @@ export function Keyboard(props: {
     pressKey,
     releasePointer,
     releaseAll,
+    touchPointerFallback: mitigationConfig.touchPointerFallback,
   });
 
   useTouchChannel({
@@ -552,7 +554,8 @@ export function Keyboard(props: {
           if (props.editMode) props.onSelectKey(k.id);
         }}
         onPointerDown={(ev) => {
-          if ((ev as any).pointerType === 'touch') {
+          const isTouch = (ev as any).pointerType === 'touch';
+          if (isTouch && !mitigationConfig.touchPointerFallback) {
             ev.preventDefault();
             return;
           }
@@ -565,21 +568,24 @@ export function Keyboard(props: {
           pressKey(ev.pointerId, k);
         }}
         onPointerUp={(ev) => {
-          if ((ev as any).pointerType !== 'touch') {
+          const isTouch = (ev as any).pointerType === 'touch';
+          if (!isTouch || mitigationConfig.touchPointerFallback) {
             ev.preventDefault();
           }
           if (props.editMode) return;
           releasePointer(ev.pointerId);
         }}
         onPointerCancel={(ev) => {
-          if ((ev as any).pointerType !== 'touch') {
+          const isTouch = (ev as any).pointerType === 'touch';
+          if (!isTouch || mitigationConfig.touchPointerFallback) {
             ev.preventDefault();
           }
           if (props.editMode) return;
           releasePointer(ev.pointerId);
         }}
         onLostPointerCapture={(ev) => {
-          if ((ev as any).pointerType !== 'touch') {
+          const isTouch = (ev as any).pointerType === 'touch';
+          if (!isTouch || mitigationConfig.touchPointerFallback) {
             ev.preventDefault();
           }
           if (props.editMode) return;

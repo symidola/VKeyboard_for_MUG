@@ -24,6 +24,7 @@ type UsePointerChannelParams = {
   pressKey: (pointerId: number, key: KeyboardKey) => void;
   releasePointer: (pointerId: number) => void;
   releaseAll: (reason: string) => void;
+  touchPointerFallback: boolean;
 };
 
 // Pointer 主通道：承接鼠标/触控笔输入，并在必要时为 touch 提供 fallback。
@@ -38,13 +39,14 @@ export function usePointerChannel(params: UsePointerChannelParams): void {
     pressKey,
     releasePointer,
     releaseAll,
+    touchPointerFallback,
   } = params;
 
   React.useEffect(() => {
     if (editMode) return;
 
     const onUp = (ev: PointerEvent) => {
-      if ((ev as any).pointerType === 'touch') return;
+      if (!touchPointerFallback && (ev as any).pointerType === 'touch') return;
       releasePointer(ev.pointerId);
     };
 
@@ -59,7 +61,7 @@ export function usePointerChannel(params: UsePointerChannelParams): void {
     };
 
     const onGlobalDownCapture = (ev: PointerEvent) => {
-      if ((ev as any).pointerType === 'touch') return;
+      if (!touchPointerFallback && (ev as any).pointerType === 'touch') return;
 
       const el = kbAbsRef.current;
       if (!el) return;
@@ -134,5 +136,6 @@ export function usePointerChannel(params: UsePointerChannelParams): void {
     releaseAll,
     releasePointer,
     resolveKeyFromClientPoint,
+    touchPointerFallback,
   ]);
 }
