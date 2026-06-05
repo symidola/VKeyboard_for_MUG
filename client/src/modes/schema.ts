@@ -1,6 +1,6 @@
 import type { KeyboardKey, KeyboardLayout, KeyboardRow } from '@vkeyboard/shared';
 
-export type ModeZoneShape = 'rect';
+export type ModeZoneShape = 'rect' | 'circle';
 
 export type ModeZoneBinding = {
   keyId: string;
@@ -38,6 +38,7 @@ function toKeyboardKey(zone: ModeZone): KeyboardKey {
     x: zone.x,
     y: zone.y,
     gapBefore: zone.gapBefore,
+    shape: zone.shape === 'circle' ? 'circle' : undefined,
   };
 }
 
@@ -85,7 +86,7 @@ export function keyboardLayoutToMode(layout: KeyboardLayout): KeyboardMode {
 
       zones.push({
         id: key.id,
-        shape: 'rect',
+        shape: key.shape === 'circle' ? 'circle' : 'rect',
         rowId: row.id,
         x,
         y,

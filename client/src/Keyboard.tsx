@@ -450,8 +450,26 @@ export function Keyboard(props: {
 
       let best: { key: KeyboardKey; dist2: number } | null = null;
       for (const r of absKeyRects) {
-        const dx = x < r.left ? r.left - x : x > r.left + r.width ? x - (r.left + r.width) : 0;
-        const dy = y < r.top ? r.top - y : y > r.top + r.height ? y - (r.top + r.height) : 0;
+        let dx: number;
+        let dy: number;
+        if (r.key.shape === 'circle') {
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          const radius = Math.min(r.width, r.height) / 2;
+          const ndx = (x - cx) / radius;
+          const ndy = (y - cy) / radius;
+          if (ndx * ndx + ndy * ndy <= 1) {
+            dx = 0;
+            dy = 0;
+          } else {
+            const dist = Math.sqrt(ndx * ndx + ndy * ndy);
+            dx = (ndx / dist - 1) * radius;
+            dy = (ndy / dist - 1) * radius;
+          }
+        } else {
+          dx = x < r.left ? r.left - x : x > r.left + r.width ? x - (r.left + r.width) : 0;
+          dy = y < r.top ? r.top - y : y > r.top + r.height ? y - (r.top + r.height) : 0;
+        }
         const dist2 = dx * dx + dy * dy;
         if (!best || dist2 < best.dist2) best = { key: r.key, dist2 };
         if (dist2 === 0) break;
@@ -639,6 +657,7 @@ export function Keyboard(props: {
                         top: `${absBounds.pad + (y - absBounds.minY) * pitch}px`,
                         width: `${keyWidthPx}px`,
                         height: `${keyHeightPx}px`,
+                        ...(k.shape === 'circle' ? { borderRadius: '50%', zIndex: 1 } : {}),
                       };
 
                       return renderKeyButton(k, style);
