@@ -594,7 +594,12 @@ export function Keyboard(props: {
             props.onSelectKey(k.id);
             return;
           }
-          pressKey(ev.pointerId, k);
+          // For semiX keys the visible button is not necessarily the
+          // correct one — resolve from coordinates to pick the right half.
+          const effectiveKey = k.semiX
+            ? resolveKeyFromClientPoint(ev.clientX, ev.clientY, ev.target, { preferTarget: false, preferNearest: false })
+            : k;
+          if (effectiveKey) pressKey(ev.pointerId, effectiveKey);
         }}
         onPointerUp={(ev) => {
           const isTouch = (ev as any).pointerType === 'touch';
