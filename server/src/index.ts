@@ -68,6 +68,9 @@ const wss = new WebSocketServer({
   server,
   path: '/ws',
   perMessageDeflate: false,
+  maxPayload: 64 * 1024,
+  pingInterval: 15000,
+  pingTimeout: 5000,
 });
 
 const clients = new Map<any, ClientInfo>();
@@ -100,6 +103,8 @@ wss.on('connection', (ws, req) => {
   const id = randomUUID();
   clients.set(ws, { id, role: 'receiver' });
 
+  console.log(`[ws] client connected id=${id}`);
+
   // TCP 低延迟：禁用 Nagle
   // ws 的 socket 是私有字段，但在 Node 场景下很常用
   (ws as any)._socket?.setNoDelay?.(true);
@@ -107,7 +112,10 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (data) => {
     const text = typeof data === 'string' ? data : data.toString('utf8');
     const raw = safeJsonParse(text);
-    if (!isClientToServerMessage(raw)) return;
+    if (!isClientToServerMessage(raw)) {
+      if (raw != null) console.warn('[ws] dropped invalid message', id);
+      return;
+    }
 
     if (raw.type === 'hello') {
       const current = clients.get(ws);
@@ -125,13 +133,15 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    const info = clients.get(ws);
+    console.log(`[ws] client disconnected id=${info?.id ?? '?'} role=${info?.role ?? '?'}`);
     clients.delete(ws);
     broadcastState();
   });
 
-  ws.on('error', () => {
-    clients.delete(ws);
-    broadcastState();
+  ws.on('error', (err) => {
+    const info = clients.get(ws);
+    console.error(`[ws] client error id=${info?.id ?? '?'} role=${info?.role ?? '?'}`, err.message);
   });
 
   // 基础握手信息

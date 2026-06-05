@@ -157,8 +157,9 @@ function toAhkLineFromState(action: 'down' | 'up' | 'tap', data: { code?: string
 
 const args = parseArgs(process.argv.slice(2));
 
-if (process.platform !== 'win32') {
+if (process.platform !== 'win32' && !args.dryRun) {
   console.error('[injector] This injector is Windows-only (uses AutoHotkey).');
+  console.error('[injector] Use --dry-run on other platforms for testing.');
   process.exit(1);
 }
 
@@ -166,20 +167,28 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ahkScriptPath = path.resolve(__dirname, '../ahk/VKeyboardInject.ahk');
 
-const ahk = args.dryRun
-  ? null
-  : startAhk({
-      autoHotkeyExe: args.autoHotkeyExe,
-      scriptPath: ahkScriptPath,
-      verbose: args.verbose,
-    });
-
-console.log(`[injector] connecting: ${args.server}`);
-console.log(`[injector] dryRun=${args.dryRun}`);
-
 const heldKeys = new Set<string>();
 const keySeqById = new Map<string, number>();
 let preferKeyState = false;
+
+let shutdown = false;
+let reconnectDelay = 1000;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let ws: WebSocket | null = null;
+let ahk: ReturnType<typeof startAhk> | null = null;
+
+function startAhkInstance(): void {
+  if (args.dryRun) return;
+  ahk = startAhk({
+    autoHotkeyExe: args.autoHotkeyExe,
+    scriptPath: ahkScriptPath,
+    verbose: args.verbose,
+    onExit: (code) => {
+      console.error(`[injector] AHK exited code=${code}, restarting...`);
+      if (!shutdown) startAhkInstance();
+    },
+  });
+}
 
 function emitAction(action: 'down' | 'up' | 'tap', data: { keyId: string; code?: string; label?: string }): void {
   const line = toAhkLineFromState(action, data);
@@ -225,79 +234,106 @@ function applyKeyState(msg: KeyStateMessage): void {
   }
 }
 
-const ws = new WebSocket(args.server, {
-  perMessageDeflate: false,
-});
+function connectWS(): void {
+  heldKeys.clear();
+  keySeqById.clear();
+  preferKeyState = false;
 
-ws.on('open', () => {
-  const hello: ClientToServerMessage = {
-    type: 'hello',
-    role: 'receiver',
-    deviceName: 'windows-injector',
-  };
-  ws.send(JSON.stringify(hello));
-  console.log('[injector] connected');
-});
+  ws = new WebSocket(args.server, {
+    perMessageDeflate: false,
+  });
 
-ws.on('message', (data) => {
-  const text = typeof data === 'string' ? data : data.toString('utf8');
-  let msg: ServerToClientMessage;
-  try {
-    msg = JSON.parse(text) as ServerToClientMessage;
-  } catch {
-    return;
-  }
+  ws.on('open', () => {
+    reconnectDelay = 1000;
+    const hello: ClientToServerMessage = {
+      type: 'hello',
+      role: 'receiver',
+      deviceName: 'windows-injector',
+    };
+    ws!.send(JSON.stringify(hello));
+    console.log('[injector] connected');
+  });
 
-  if (msg.type === 'key_state') {
-    applyKeyState(msg);
-    return;
-  }
+  ws.on('message', (data) => {
+    const text = typeof data === 'string' ? data : data.toString('utf8');
+    let msg: ServerToClientMessage;
+    try {
+      msg = JSON.parse(text) as ServerToClientMessage;
+    } catch {
+      return;
+    }
 
-  if (msg.type !== 'key') return;
+    if (msg.type === 'key_state') {
+      applyKeyState(msg);
+      return;
+    }
 
-  // Once key_state stream is available, ignore edge-only key packets to avoid
-  // race conditions between two channels with different ordering.
-  if (preferKeyState) return;
+    if (msg.type !== 'key') return;
 
-  const line = toAhkLine(msg);
-  if (!line) return;
+    // Once key_state stream is available, ignore edge-only key packets to avoid
+    // race conditions between two channels with different ordering.
+    if (preferKeyState) return;
 
-  if (msg.action === 'down') {
-    if (heldKeys.has(msg.keyId)) return;
-    heldKeys.add(msg.keyId);
-  }
+    const line = toAhkLine(msg);
+    if (!line) return;
 
-  if (msg.action === 'up') {
-    if (!heldKeys.has(msg.keyId)) return;
-    heldKeys.delete(msg.keyId);
-  }
+    if (msg.action === 'down') {
+      if (heldKeys.has(msg.keyId)) return;
+      heldKeys.add(msg.keyId);
+    }
 
-  if (args.dryRun) {
-    console.log(`[injector] ${line}`);
-    return;
-  }
+    if (msg.action === 'up') {
+      if (!heldKeys.has(msg.keyId)) return;
+      heldKeys.delete(msg.keyId);
+    }
 
-  ahk?.sendLine(line);
-});
+    if (args.dryRun) {
+      console.log(`[injector] ${line}`);
+      return;
+    }
 
-ws.on('close', () => {
-  console.log('[injector] disconnected');
-  ahk?.stop();
-  process.exit(0);
-});
+    ahk?.sendLine(line);
+  });
 
-ws.on('error', (err) => {
-  console.error('[injector] ws error', err);
-  ahk?.stop();
-  process.exit(1);
-});
+  ws.on('close', () => {
+    console.log('[injector] disconnected');
+    ws = null;
+    if (!shutdown) scheduleReconnect();
+  });
+
+  ws.on('error', (err) => {
+    console.error('[injector] ws error:', err.message);
+    ws = null;
+    if (!shutdown) scheduleReconnect();
+  });
+}
+
+function scheduleReconnect(): void {
+  if (shutdown) return;
+  const delaySec = (reconnectDelay / 1000).toFixed(1);
+  console.log(`[injector] reconnecting in ${delaySec}s...`);
+  reconnectTimer = setTimeout(() => {
+    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+    connectWS();
+  }, reconnectDelay);
+}
+
+console.log(`[injector] server: ${args.server}`);
+console.log(`[injector] dryRun=${args.dryRun}`);
+
+startAhkInstance();
+connectWS();
 
 process.on('SIGINT', () => {
   console.log('\n[injector] stopping...');
-  try {
-    ws.close();
-  } catch {
-    // ignore
+  shutdown = true;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (ws) {
+    try { ws.close(); } catch { /* ignore */ }
+    ws = null;
   }
   ahk?.stop();
   process.exit(0);
