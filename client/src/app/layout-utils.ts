@@ -1,11 +1,12 @@
 import type { KeyboardKey, KeyboardLayout } from '@vkeyboard/shared';
-import { djmax8bLayout } from '../layouts/djmax8b';
+import { getDefaultGameModeId, getLayoutForGameMode, isGameModeId, type GameModeId } from '../modes/presets';
 
 export type ThemeMode = 'dark' | 'light';
 
 type LayoutStorage = {
   theme: ThemeMode;
   layout: KeyboardLayout;
+  modeId: GameModeId;
 };
 
 const STORAGE_KEY = 'vkeyboard_state';
@@ -28,17 +29,43 @@ function safeSetStorage(value: string): void {
 
 export function loadStorage(): LayoutStorage {
   const raw = safeGetStorage();
+  const defaultModeId = getDefaultGameModeId();
+  const defaultLayout = getLayoutForGameMode(defaultModeId);
+  const fallbackLayout = defaultLayout ?? {
+    id: 'djmax8b',
+    name: 'DJMAX 8B',
+    unitPx: 72,
+    gapPx: 12,
+    rows: [],
+  };
+
   if (raw) {
     try {
-      const parsed = JSON.parse(raw) as LayoutStorage;
+      const parsed = JSON.parse(raw) as Partial<LayoutStorage>;
+      const parsedMode = typeof parsed.modeId === 'string' && isGameModeId(parsed.modeId) ? parsed.modeId : defaultModeId;
       if (parsed?.layout?.rows?.length) {
-        return parsed;
+        return {
+          theme: parsed.theme === 'light' ? 'light' : 'dark',
+          layout: parsed.layout,
+          modeId: parsedMode,
+        };
       }
+
+      const modeLayout = getLayoutForGameMode(parsedMode) ?? fallbackLayout;
+      return {
+        theme: parsed.theme === 'light' ? 'light' : 'dark',
+        modeId: parsedMode,
+        layout: modeLayout,
+      };
     } catch {
       // ignore invalid legacy data
     }
   }
-  return { theme: 'dark', layout: djmax8bLayout };
+  return {
+    theme: 'dark',
+    modeId: defaultModeId,
+    layout: fallbackLayout,
+  };
 }
 
 export function saveStorage(state: LayoutStorage): void {

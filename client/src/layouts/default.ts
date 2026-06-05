@@ -1,6 +1,8 @@
 import type { KeyboardLayout } from '@vkeyboard/shared';
+import type { KeyboardMode } from '../modes/schema';
+import { keyboardLayoutToMode, modeToKeyboardLayout } from '../modes/schema';
 
-export const defaultLayout: KeyboardLayout = {
+const defaultLayoutLegacy: KeyboardLayout = {
   id: 'default',
   name: 'Default',
   unitPx: 52,
@@ -58,3 +60,6 @@ export const defaultLayout: KeyboardLayout = {
     }
   ]
 };
+
+export const defaultMode: KeyboardMode = keyboardLayoutToMode(defaultLayoutLegacy);
+export const defaultLayout: KeyboardLayout = modeToKeyboardLayout(defaultMode);
