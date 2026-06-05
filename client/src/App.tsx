@@ -29,13 +29,11 @@ export function App(): React.ReactElement {
   const [layoutJson, setLayoutJson] = React.useState(() => JSON.stringify(initialLayout, null, 2));
   const [layoutJsonTouched, setLayoutJsonTouched] = React.useState(false);
   const [layoutError, setLayoutError] = React.useState<string | null>(null);
-  const [oLatch, setOLatch] = React.useState(false);
   const [iosFixMode, setIosFixMode] = React.useState<IosFixMode>(readIosFixMode);
 
   const { wsStatus, clientsCount, recvLog, clearRecvLog, sendKey } = useKeyboardSocket({ mode, layout });
 
   React.useEffect(() => {
-    // Phone mode always stays in keyboard role to avoid receiver mis-touch.
     if (!isPhone) return;
     if (mode !== 'keyboard') setMode('keyboard');
     if (selectedKeyId) setSelectedKeyId(undefined);
@@ -51,15 +49,6 @@ export function App(): React.ReactElement {
       setLayoutJson(JSON.stringify(layout, null, 2));
     }
   }, [layout, layoutJsonTouched]);
-
-  React.useEffect(() => {
-    if (mode === 'keyboard') return;
-    if (oLatch) setOLatch(false);
-  }, [mode, oLatch]);
-
-  const toggleConsoleO = React.useCallback(() => {
-    setOLatch((v) => !v);
-  }, []);
 
   const clearSelectedKey = React.useCallback(() => {
     setSelectedKeyId(undefined);
@@ -99,8 +88,7 @@ export function App(): React.ReactElement {
   const backHome = React.useCallback(() => {
     setView('home');
     setMode('keyboard');
-    if (oLatch) setOLatch(false);
-  }, [oLatch]);
+  }, []);
 
   const selectGameMode = React.useCallback(
     (nextModeId: GameModeId) => {
@@ -125,22 +113,28 @@ export function App(): React.ReactElement {
   }, [gameModeId]);
 
   const modeSwitcher = (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
       {gameModeOptions.map((opt) => (
         <button
           key={opt.id}
           className={['btn', gameModeId === opt.id ? 'primary' : ''].join(' ')}
           onClick={() => selectGameMode(opt.id)}
-          title={opt.implemented ? '已接入' : '状态已预留，具体布局待实现'}
+          title={opt.implemented ? undefined : '已预留，待实现'}
         >
           {opt.label}
-          {!opt.implemented ? '（预留）' : ''}
         </button>
       ))}
     </div>
   );
 
   const forceLandscape = isPhone && isPortrait;
+  const workspaceBackdrop = (
+    <div className="homeBackdrop" aria-hidden="true">
+      <span className="homeGlow homeGlowA" />
+      <span className="homeGlow homeGlowB" />
+      <span className="homeGlow homeGlowC" />
+    </div>
+  );
 
   return (
     <div className={['appShell', forceLandscape ? 'forceLandscape' : ''].join(' ')}>
@@ -168,72 +162,20 @@ export function App(): React.ReactElement {
           <>
             <div className="topbar">
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="btn" onClick={backHome}>
-                  首页
-                </button>
-                <button className="btn" onClick={openInfo}>
-                  信息页
-                </button>
-                <button className={['btn', mode === 'keyboard' ? 'primary' : ''].join(' ')} onClick={() => setMode('keyboard')}>
-                  键盘
-                </button>
-                <button className={['btn', mode === 'receiver' ? 'primary' : ''].join(' ')} onClick={() => setMode('receiver')}>
-                  接收器
-                </button>
-                <span className="badge">
-                  WS: {wsStatus} · Clients: {clientsCount}
-                </span>
+                <button className="btn" onClick={backHome}>首页</button>
+                {modeSwitcher}
               </div>
-              {modeSwitcher}
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button className={['btn', oLatch ? 'primary' : ''].join(' ')} onClick={toggleConsoleO}>
-                  O键锁定/锚点：{oLatch ? '开启' : '关闭'}
-                </button>
-                <button className="btn" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>
-                  主题：{theme === 'dark' ? '暗' : '亮'}
-                </button>
-                <button
-                  className={['btn', editMode ? 'primary' : ''].join(' ')}
-                  onClick={() => {
-                    if (editMode) {
-                      clearSelectedKey();
-                      (document.activeElement as HTMLElement | null)?.blur?.();
-                    }
-                    setEditMode((v) => !v);
-                  }}
-                >
-                  {editMode ? '退出编辑' : '编辑布局'}
-                </button>
-              </div>
+              <span className="badge">
+                WS: {wsStatus} · Clients: {clientsCount}
+              </span>
             </div>
 
             {mode === 'keyboard' && (
-              <div className="panel">
-                {isPhone && (
-                  <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
-                    <button className="btn" onClick={backHome}>
-                      首页
-                    </button>
-                    <button className="btn" onClick={openInfo}>
-                      信息页
-                    </button>
-                    <button className="btn" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>
-                      主题：{theme === 'dark' ? '暗' : '亮'}
-                    </button>
-                    <button className={['btn', editMode ? 'primary' : ''].join(' ')} onClick={() => setEditMode((v) => !v)}>
-                      {editMode ? '退出编辑' : '编辑布局'}
-                    </button>
-                  </div>
-                )}
-                {isPhone && (
-                  <div style={{ marginBottom: 10 }}>
-                    {modeSwitcher}
-                  </div>
-                )}
+              <div className="workspacePanel">
+                {workspaceBackdrop}
                 <Keyboard
                   layout={layout}
                   editMode={editMode}
-                  forceAlwaysTouch={oLatch}
                   iosFixMode={iosFixMode}
                   selectedKeyId={selectedKeyId}
                   onSelectKey={(id) => setSelectedKeyId(id)}
@@ -259,12 +201,11 @@ export function App(): React.ReactElement {
 
             {!isPhone && mode === 'receiver' && (
               <div className="panel">
+                {workspaceBackdrop}
                 <div style={{ fontWeight: 600, marginBottom: 8 }}>接收器日志（最近 50 条）</div>
                 <textarea readOnly value={recvLog.join('\n')} />
                 <div className="row" style={{ marginTop: 10 }}>
-                  <button className="btn" onClick={clearRecvLog}>
-                    清空
-                  </button>
+                  <button className="btn" onClick={clearRecvLog}>清空</button>
                 </div>
               </div>
             )}
