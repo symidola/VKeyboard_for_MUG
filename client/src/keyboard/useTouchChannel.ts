@@ -200,7 +200,11 @@ export function useTouchChannel(params: UseTouchChannelParams): void {
 
       const hasActiveKeyboardTouch = reconcileTouches();
 
-      if (ev.cancelable && (hitKeyboard || bootstrapPressed || hasActiveKeyboardTouch)) {
+      if (
+        ev.cancelable &&
+        (ev.type === 'touchstart' || ev.type === 'touchmove') &&
+        (hitKeyboard || bootstrapPressed || hasActiveKeyboardTouch)
+      ) {
         ev.preventDefault();
       }
     };

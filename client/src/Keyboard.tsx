@@ -565,17 +565,23 @@ export function Keyboard(props: {
           pressKey(ev.pointerId, k);
         }}
         onPointerUp={(ev) => {
-          ev.preventDefault();
+          if ((ev as any).pointerType !== 'touch') {
+            ev.preventDefault();
+          }
           if (props.editMode) return;
           releasePointer(ev.pointerId);
         }}
         onPointerCancel={(ev) => {
-          ev.preventDefault();
+          if ((ev as any).pointerType !== 'touch') {
+            ev.preventDefault();
+          }
           if (props.editMode) return;
           releasePointer(ev.pointerId);
         }}
         onLostPointerCapture={(ev) => {
-          ev.preventDefault();
+          if ((ev as any).pointerType !== 'touch') {
+            ev.preventDefault();
+          }
           if (props.editMode) return;
           if (debugTouch) dbg('lostpointercapture', { pointerId: ev.pointerId, keyId: k.id });
           releasePointer(ev.pointerId);
