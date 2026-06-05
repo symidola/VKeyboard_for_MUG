@@ -1,4 +1,5 @@
 import React from 'react';
+import { type IosFixMode, IOS_FIX_MODES, IOS_FIX_LABELS, IOS_FIX_DESCRIPTIONS } from '../keyboard/iosTouchFixes';
 
 type HomeLandingProps = {
   wsStatus: string;
@@ -7,10 +8,11 @@ type HomeLandingProps = {
   onEnterKeyboard: () => void;
   onEnterEditor: () => void;
   onOpenInfo: () => void;
+  onEnterKeyboardWithFix: (mode: IosFixMode) => void;
 };
 
 export function HomeLanding(props: HomeLandingProps): React.ReactElement {
-  const { wsStatus, clientsCount, currentModeLabel, onEnterKeyboard, onEnterEditor, onOpenInfo } = props;
+  const { wsStatus, clientsCount, currentModeLabel, onEnterKeyboard, onEnterEditor, onOpenInfo, onEnterKeyboardWithFix } = props;
 
   return (
     <section className="homeStage panel">
@@ -51,6 +53,28 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
           <p>查看项目状态、模式规划与下一阶段开发方向。</p>
           <span>查看详情</span>
         </button>
+      </div>
+
+      <div className="panel" style={{ marginTop: 16 }}>
+        <h3 style={{ margin: '0 0 8px 0' }}>iOS 断触修复测试</h3>
+        <p style={{ margin: '0 0 12px 0', opacity: 0.7 }}>
+          选择一个修复策略后进入键盘进行测试。默认已启用 touchPointerFallback + manipulation。
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {IOS_FIX_MODES.map((mode) => (
+            <button
+              key={mode}
+              className={['btn', mode === 'off' ? '' : 'primary'].join(' ')}
+              style={{ textAlign: 'left', maxWidth: 260, whiteSpace: 'normal' }}
+              onClick={() => onEnterKeyboardWithFix(mode)}
+              title={IOS_FIX_DESCRIPTIONS[mode]}
+            >
+              <strong>{IOS_FIX_LABELS[mode]}</strong>
+              <br />
+              <small style={{ opacity: 0.7 }}>{IOS_FIX_DESCRIPTIONS[mode]}</small>
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );

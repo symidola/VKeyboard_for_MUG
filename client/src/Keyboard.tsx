@@ -14,6 +14,13 @@ import type { AbsBounds, AbsKeyRect } from './keyboard/types';
 import { usePointerChannel } from './keyboard/usePointerChannel';
 import { useTouchChannel } from './keyboard/useTouchChannel';
 import { TOUCH_FAILURE_MITIGATION_DISABLED, getTouchMitigationConfig } from './keyboard/touchFailureMitigations';
+import {
+  useActivePolling,
+  useDirectCapture,
+  useContainerCapture,
+  useRafPolling,
+  type IosFixMode,
+} from './keyboard/iosTouchFixes';
 
 const VKDBG_BUILD_TAG = 'vkdbg-2026-04-04-b';
 
@@ -22,6 +29,7 @@ export function Keyboard(props: {
   selectedKeyId?: string;
   editMode: boolean;
   forceAlwaysTouch?: boolean;
+  iosFixMode?: IosFixMode;
   onSelectKey: (keyId: string) => void;
   onKeyDown: (k: KeyboardKey) => void;
   onKeyUp: (k: KeyboardKey) => void;
@@ -39,6 +47,7 @@ export function Keyboard(props: {
   } =
     React.useMemo(() => readKeyboardRuntimeFlags(qs, props.forceAlwaysTouch), [qs, props.forceAlwaysTouch]);
   const mitigationConfig = React.useMemo(() => getTouchMitigationConfig(), []);
+  const iosFixMode = props.iosFixMode ?? 'off';
 
   // 生成调试日志上报地址，支持 URL 参数覆盖。
   const makeDebugLogUrl = React.useCallback((): string => {
@@ -488,6 +497,19 @@ export function Keyboard(props: {
     pressKey,
     releasePointer,
   });
+
+  // ── iOS 触控实验性修复通道 ──
+  const activePollOn = iosFixMode === 'activePoll' || iosFixMode === 'all';
+  useActivePolling({ editMode: props.editMode, keyById, pressKey, releasePointer, enabled: activePollOn });
+
+  const directCaptureOn = iosFixMode === 'directCapture' || iosFixMode === 'all';
+  useDirectCapture({ editMode: props.editMode, keyById, pressKey, releasePointer, enabled: directCaptureOn });
+
+  const containerCaptureOn = iosFixMode === 'containerCapture';
+  useContainerCapture({ editMode: props.editMode, keyById, pressKey, releasePointer, enabled: containerCaptureOn, containerRef: kbRootRef });
+
+  const rafPollOn = iosFixMode === 'rafPoll' || iosFixMode === 'all';
+  useRafPolling({ editMode: props.editMode, keyById, pressKey, releasePointer, enabled: rafPollOn });
 
   // 暴露全局调试对象，便于外部快速抓取触摸链路状态。
   React.useEffect(() => {
