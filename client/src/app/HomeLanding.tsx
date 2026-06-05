@@ -1,18 +1,36 @@
 import React from 'react';
-import { type IosFixMode, IOS_FIX_MODES, IOS_FIX_LABELS, IOS_FIX_DESCRIPTIONS } from '../keyboard/iosTouchFixes';
+import { type GameModeId, type GameModeOption } from '../modes/presets';
+import { type SkinId, type SkinOption, getSkinLabel } from './skins';
 
 type HomeLandingProps = {
   wsStatus: string;
   clientsCount: number;
   currentModeLabel: string;
+  gameModeId: GameModeId;
+  gameModeOptions: GameModeOption[];
+  skin: SkinId;
+  skinOptions: SkinOption[];
+  onSelectGameMode: (id: GameModeId) => void;
+  onSelectSkin: (id: SkinId) => void;
   onEnterKeyboard: () => void;
   onEnterEditor: () => void;
   onOpenInfo: () => void;
-  onEnterKeyboardWithFix: (mode: IosFixMode) => void;
 };
 
 export function HomeLanding(props: HomeLandingProps): React.ReactElement {
-  const { wsStatus, clientsCount, currentModeLabel, onEnterKeyboard, onEnterEditor, onOpenInfo, onEnterKeyboardWithFix } = props;
+  const {
+    wsStatus,
+    clientsCount,
+    gameModeId,
+    gameModeOptions,
+    skin,
+    skinOptions,
+    onSelectGameMode,
+    onSelectSkin,
+    onEnterKeyboard,
+    onEnterEditor,
+    onOpenInfo,
+  } = props;
 
   return (
     <section className="homeStage panel">
@@ -26,12 +44,45 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
         <div className="homeKicker">VKeyboard for MUG</div>
         <h1>多游戏触控键盘工作台</h1>
         <p>
-          面向节奏游戏的可扩展触控键盘。当前已接入 DJMAX，后续将扩展四键、七键与太鼓分区模式。
+          面向节奏游戏的可扩展触控键盘。在下方选择游戏模式与视觉皮肤后进入演奏。
         </p>
         <div className="homeMetaRow">
           <span className="badge">WS: {wsStatus}</span>
           <span className="badge">Clients: {clientsCount}</span>
-          <span className="badge">当前模式: {currentModeLabel}</span>
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginTop: 16 }}>
+        <h3 style={{ margin: '0 0 8px 0' }}>游戏模式</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {gameModeOptions.map((opt) => (
+            <button
+              key={opt.id}
+              className={['btn', gameModeId === opt.id ? 'primary' : ''].join(' ')}
+              onClick={() => onSelectGameMode(opt.id)}
+              disabled={!opt.implemented}
+              title={opt.implemented ? undefined : '暂未实现'}
+            >
+              {opt.label}
+              {!opt.implemented ? '（预留）' : ''}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginTop: 12 }}>
+        <h3 style={{ margin: '0 0 8px 0' }}>皮肤</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {skinOptions.map((opt) => (
+            <button
+              key={opt.id}
+              className={['btn', skin === opt.id ? 'primary' : ''].join(' ')}
+              onClick={() => onSelectSkin(opt.id)}
+              title={opt.description}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -39,7 +90,7 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
         <button className="homeEntry homeEntryPrimary" onClick={onEnterKeyboard}>
           <h3>键盘</h3>
           <p>进入演奏键盘视图，直接测试按键链路和触控反馈。</p>
-          <span>立即进入</span>
+          <span>立即进入 {getSkinLabel(skin)} · {gameModeOptions.find((o) => o.id === gameModeId)?.label ?? ''}</span>
         </button>
 
         <button className="homeEntry" onClick={onEnterEditor}>
@@ -53,28 +104,6 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
           <p>查看项目状态、模式规划与下一阶段开发方向。</p>
           <span>查看详情</span>
         </button>
-      </div>
-
-      <div className="panel" style={{ marginTop: 16 }}>
-        <h3 style={{ margin: '0 0 8px 0' }}>iOS 断触修复测试</h3>
-        <p style={{ margin: '0 0 12px 0', opacity: 0.7 }}>
-          选择一个修复策略后进入键盘进行测试。默认已启用 touchPointerFallback + manipulation。
-        </p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {IOS_FIX_MODES.map((mode) => (
-            <button
-              key={mode}
-              className={['btn', mode === 'off' ? '' : 'primary'].join(' ')}
-              style={{ textAlign: 'left', maxWidth: 260, whiteSpace: 'normal' }}
-              onClick={() => onEnterKeyboardWithFix(mode)}
-              title={IOS_FIX_DESCRIPTIONS[mode]}
-            >
-              <strong>{IOS_FIX_LABELS[mode]}</strong>
-              <br />
-              <small style={{ opacity: 0.7 }}>{IOS_FIX_DESCRIPTIONS[mode]}</small>
-            </button>
-          ))}
-        </div>
       </div>
     </section>
   );

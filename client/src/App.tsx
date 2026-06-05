@@ -8,7 +8,7 @@ import { loadStorage, normalizeLayout, saveStorage, type ThemeMode } from './app
 import { gameModeOptions, getLayoutForGameMode, type GameModeId } from './modes/presets';
 import { useKeyboardSocket } from './app/useKeyboardSocket';
 import { useViewportMode } from './app/useViewportMode';
-import { type IosFixMode, readIosFixMode } from './keyboard/iosTouchFixes';
+import { skinOptions, type SkinId } from './app/skins';
 
 type ShellView = 'home' | 'workspace' | 'info';
 
@@ -25,11 +25,11 @@ export function App(): React.ReactElement {
   const [selectedKeyId, setSelectedKeyId] = React.useState<string | undefined>(undefined);
 
   const [theme, setTheme] = React.useState<ThemeMode>(initialStorage.theme);
+  const [skin, setSkin] = React.useState<SkinId>(initialStorage.skin);
   const [layout, setLayout] = React.useState(initialLayout);
   const [layoutJson, setLayoutJson] = React.useState(() => JSON.stringify(initialLayout, null, 2));
   const [layoutJsonTouched, setLayoutJsonTouched] = React.useState(false);
   const [layoutError, setLayoutError] = React.useState<string | null>(null);
-  const [iosFixMode, setIosFixMode] = React.useState<IosFixMode>(readIosFixMode);
 
   const { wsStatus, clientsCount, recvLog, clearRecvLog, sendKey } = useKeyboardSocket({ mode, layout });
 
@@ -41,8 +41,9 @@ export function App(): React.ReactElement {
 
   React.useEffect(() => {
     document.body.dataset.theme = theme;
-    saveStorage({ theme, layout, modeId: gameModeId });
-  }, [gameModeId, theme, layout]);
+    document.body.dataset.skin = skin;
+    saveStorage({ theme, layout, modeId: gameModeId, skin });
+  }, [gameModeId, theme, layout, skin]);
 
   React.useEffect(() => {
     if (!layoutJsonTouched) {
@@ -60,19 +61,6 @@ export function App(): React.ReactElement {
     setEditMode(false);
     clearSelectedKey();
   }, [clearSelectedKey]);
-
-  const enterKeyboardWithFix = React.useCallback(
-    (mode: IosFixMode) => {
-      setIosFixMode(mode);
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.set('iosFix', mode);
-        window.history.replaceState(null, '', url.toString());
-      } catch { /* */ }
-      enterKeyboard();
-    },
-    [enterKeyboard],
-  );
 
   const enterEditor = React.useCallback(() => {
     setView('workspace');
@@ -101,6 +89,10 @@ export function App(): React.ReactElement {
     },
     [clearSelectedKey],
   );
+
+  const selectSkin = React.useCallback((nextSkin: SkinId) => {
+    setSkin(nextSkin);
+  }, []);
 
   const selectedKey = React.useMemo(() => {
     if (!selectedKeyId) return undefined;
@@ -144,10 +136,15 @@ export function App(): React.ReactElement {
             wsStatus={wsStatus}
             clientsCount={clientsCount}
             currentModeLabel={currentGameModeLabel}
+            gameModeId={gameModeId}
+            gameModeOptions={gameModeOptions}
+            skin={skin}
+            skinOptions={skinOptions}
+            onSelectGameMode={selectGameMode}
+            onSelectSkin={selectSkin}
             onEnterKeyboard={enterKeyboard}
             onEnterEditor={enterEditor}
             onOpenInfo={openInfo}
-            onEnterKeyboardWithFix={enterKeyboardWithFix}
           />
         )}
 
@@ -176,7 +173,6 @@ export function App(): React.ReactElement {
                 <Keyboard
                   layout={layout}
                   editMode={editMode}
-                  iosFixMode={iosFixMode}
                   selectedKeyId={selectedKeyId}
                   onSelectKey={(id) => setSelectedKeyId(id)}
                   onKeyDown={(k) => sendKey('down', k)}

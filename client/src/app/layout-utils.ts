@@ -1,5 +1,6 @@
 import type { KeyboardKey, KeyboardLayout } from '@vkeyboard/shared';
 import { getDefaultGameModeId, getLayoutForGameMode, isGameModeId, type GameModeId } from '../modes/presets';
+import { isSkinId, type SkinId } from './skins';
 
 export type ThemeMode = 'dark' | 'light';
 
@@ -7,6 +8,7 @@ type LayoutStorage = {
   theme: ThemeMode;
   layout: KeyboardLayout;
   modeId: GameModeId;
+  skin: SkinId;
 };
 
 const STORAGE_KEY = 'vkeyboard_state';
@@ -43,11 +45,13 @@ export function loadStorage(): LayoutStorage {
     try {
       const parsed = JSON.parse(raw) as Partial<LayoutStorage>;
       const parsedMode = typeof parsed.modeId === 'string' && isGameModeId(parsed.modeId) ? parsed.modeId : defaultModeId;
+      const parsedSkin = typeof parsed.skin === 'string' && isSkinId(parsed.skin) ? parsed.skin : 'default';
       if (parsed?.layout?.rows?.length) {
         return {
           theme: parsed.theme === 'light' ? 'light' : 'dark',
           layout: parsed.layout,
           modeId: parsedMode,
+          skin: parsedSkin,
         };
       }
 
@@ -56,6 +60,7 @@ export function loadStorage(): LayoutStorage {
         theme: parsed.theme === 'light' ? 'light' : 'dark',
         modeId: parsedMode,
         layout: modeLayout,
+        skin: parsedSkin,
       };
     } catch {
       // ignore invalid legacy data
@@ -65,6 +70,7 @@ export function loadStorage(): LayoutStorage {
     theme: 'dark',
     modeId: defaultModeId,
     layout: fallbackLayout,
+    skin: 'default',
   };
 }
 

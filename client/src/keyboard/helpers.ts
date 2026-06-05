@@ -44,11 +44,10 @@ export function describeTarget(t: EventTarget | null): {
 }
 
 // 统一读取 URL 开关与外部强制参数，减少组件内分散判断。
-export function readKeyboardRuntimeFlags(qs: URLSearchParams, forceAlwaysTouch?: boolean): KeyboardRuntimeFlags {
+export function readKeyboardRuntimeFlags(qs: URLSearchParams): KeyboardRuntimeFlags {
   const debugTouch = qs.has('debugTouch');
   const debugTouchMove = qs.has('debugTouchMove');
   const logToServer = qs.has('logToServer');
-  void forceAlwaysTouch;
 
   const touchPrimary = qs.has('touchPrimaryOff') ? false : true;
 
