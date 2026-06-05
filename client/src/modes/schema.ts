@@ -17,6 +17,7 @@ export type ModeZone = {
   width: number;
   height: number;
   gapBefore?: number;
+  semiX?: 'left' | 'right';
   binding: ModeZoneBinding;
 };
 
@@ -39,6 +40,7 @@ function toKeyboardKey(zone: ModeZone): KeyboardKey {
     y: zone.y,
     gapBefore: zone.gapBefore,
     shape: zone.shape === 'circle' ? 'circle' : undefined,
+    semiX: zone.semiX,
   };
 }
 
@@ -93,6 +95,7 @@ export function keyboardLayoutToMode(layout: KeyboardLayout): KeyboardMode {
         width: key.width,
         height: key.height,
         gapBefore: key.gapBefore,
+        semiX: key.semiX,
         binding: {
           keyId: key.id,
           label: key.label,

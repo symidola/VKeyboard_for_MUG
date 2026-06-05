@@ -397,7 +397,7 @@ export function Keyboard(props: {
         const fromTargetKeyId = fromTarget?.dataset?.keyid;
         if (fromTargetKeyId) {
           const hit = keyById.get(fromTargetKeyId);
-          if (hit) return hit;
+          if (hit && !hit.semiX) return hit;
         }
       }
 
@@ -407,7 +407,7 @@ export function Keyboard(props: {
       const fromPointKeyId = fromPoint?.dataset?.keyid;
       if (fromPointKeyId) {
         const hit = keyById.get(fromPointKeyId);
-        if (hit) return hit;
+        if (hit && !hit.semiX) return hit;
       }
 
       if (preferNearest) {
@@ -418,6 +418,7 @@ export function Keyboard(props: {
           if (!keyId) continue;
           const key = keyById.get(keyId);
           if (!key) continue;
+          if (key.semiX) continue; // defer to absolute-layout coordinate check
           const rect = (node as HTMLElement).getBoundingClientRect();
           if (!rect.width || !rect.height) continue;
 
@@ -458,9 +459,13 @@ export function Keyboard(props: {
           const radius = Math.min(r.width, r.height) / 2;
           const ndx = (x - cx) / radius;
           const ndy = (y - cy) / radius;
-          if (ndx * ndx + ndy * ndy <= 1) {
+          const inCircle = ndx * ndx + ndy * ndy <= 1;
+          const semiOk = !r.key.semiX || (r.key.semiX === 'left' ? x < cx : x >= cx);
+          if (inCircle && semiOk) {
             dx = 0;
             dy = 0;
+          } else if (inCircle && !semiOk) {
+            continue; // wrong semicircle half — skip this key
           } else {
             const dist = Math.sqrt(ndx * ndx + ndy * ndy);
             dx = (ndx / dist - 1) * radius;

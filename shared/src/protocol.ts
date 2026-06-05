@@ -14,6 +14,8 @@ export interface KeyboardKey {
   y?: number;
   /** Hit shape override. Default is 'rect'; 'circle' uses radius from centre. */
   shape?: 'rect' | 'circle';
+  /** For circle shapes: restrict hit to left or right half (semicircle). */
+  semiX?: 'left' | 'right';
 }
 
 export interface KeyboardRow {
