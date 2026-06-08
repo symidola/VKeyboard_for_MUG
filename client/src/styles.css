@@ -67,6 +67,30 @@ button { font: inherit; }
 }
 
 .container.isPhone .topbar {
+  padding: 8px 10px;
+  gap: 6px;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.container.isPhone .topbar .btn {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.container.isPhone .topbar .badge {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.container.isPhone .workspacePanel {
+  padding: 6px;
+  border-radius: 8px;
+  border: none;
+}
+
+.container.isPhone .homeBackdrop {
   display: none;
 }
 

@@ -644,7 +644,7 @@ export function Keyboard(props: {
           <div ref={wrapRef} style={{ width: '100%', overflowX: 'auto' }}>
             {(() => {
               const maxScale = 2.5;
-              const minScale = 1;
+              const minScale = 0.3;
               const pad = 16;
               const available = Math.max(0, wrapWidth - pad * 2);
               const scaleRaw = absBounds.width > 0 ? available / absBounds.width : 1;
