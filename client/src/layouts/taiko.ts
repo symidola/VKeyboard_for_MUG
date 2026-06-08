@@ -1,8 +1,10 @@
 import type { KeyboardMode } from '../modes/schema';
 import { modeToKeyboardLayout } from '../modes/schema';
 
-// Two circles exactly filling their 8×8 halves — Don covers the
-// full width and height. Only the four rounded corners are Ka.
+// One circular drum face split vertically into left/right semicircles.
+// Both Don keys share the same bounding box (the full circle).
+// semiX restricts hit to the correct half.
+// Ka = everything outside the circle, split left/right.
 
 export const taikoMode: KeyboardMode = {
   id: 'taiko',
@@ -15,7 +17,7 @@ export const taikoMode: KeyboardMode = {
       shape: 'rect',
       rowId: 'r1',
       x: 0, y: 0,
-      width: 8, height: 8,
+      width: 8, height: 10,
       binding: { keyId: 'k_ka_l', label: '咔', code: 'KeyD' },
     },
     {
@@ -23,7 +25,7 @@ export const taikoMode: KeyboardMode = {
       shape: 'rect',
       rowId: 'r1',
       x: 8, y: 0,
-      width: 8, height: 8,
+      width: 8, height: 10,
       binding: { keyId: 'k_ka_r', label: '咔', code: 'KeyK' },
     },
     {
@@ -31,8 +33,8 @@ export const taikoMode: KeyboardMode = {
       shape: 'circle',
       semiX: 'left',
       rowId: 'r2',
-      x: 0, y: 0,
-      width: 8, height: 8,
+      x: 3.5, y: 0.5,
+      width: 9, height: 9,
       binding: { keyId: 'k_don_l', label: '咚', code: 'KeyF' },
     },
     {
@@ -40,8 +42,8 @@ export const taikoMode: KeyboardMode = {
       shape: 'circle',
       semiX: 'right',
       rowId: 'r2',
-      x: 8, y: 0,
-      width: 8, height: 8,
+      x: 3.5, y: 0.5,
+      width: 9, height: 9,
       binding: { keyId: 'k_don_r', label: '咚', code: 'KeyJ' },
     },
   ],
