@@ -172,6 +172,25 @@ body.vkLockViewport #root {
   justify-content: center;
 }
 
+/* ── 太鼓专用：Ka 键透明化（仅作为判定区底板，视觉由 Don 圆承载）── */
+[data-keyid="k_ka_l"],
+[data-keyid="k_ka_r"] {
+  background: transparent !important;
+  border: 2px dashed rgba(255,255,255,0.12) !important;
+  color: transparent !important;
+  box-shadow: none !important;
+  z-index: 0 !important;
+}
+
+[data-keyid="k_ka_l"]:active,
+[data-keyid="k_ka_l"].pressed,
+[data-keyid="k_ka_r"]:active,
+[data-keyid="k_ka_r"].pressed {
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* 太鼓 Don 键在 key 基类基础上不做额外覆写，靠绝对布局的 borderRadius:50% 形成鼓面 */
+
 .key:active {
   background: var(--key-active);
 }
