@@ -121,13 +121,27 @@ export function useKeyboardSocket(params: UseKeyboardSocketParams): UseKeyboardS
 
       keyMetaRef.current.set(key.id, { label: key.label, code: key.code });
 
-      const nextSeq = (keySeqRef.current.get(key.id) ?? 0) + 1;
-      keySeqRef.current.set(key.id, nextSeq);
-
       if (action === 'down') {
+        const nextSeq = (keySeqRef.current.get(key.id) ?? 0) + 1;
+        keySeqRef.current.set(key.id, nextSeq);
         pressedKeyIdsRef.current.add(key.id);
-      } else if (action === 'up' || action === 'tap') {
+      } else if (action === 'up') {
+        const nextSeq = (keySeqRef.current.get(key.id) ?? 0) + 1;
+        keySeqRef.current.set(key.id, nextSeq);
         pressedKeyIdsRef.current.delete(key.id);
+      } else if (action === 'tap') {
+        // Tap = immediate press + release via two key_state snapshots so
+        // the injector sees the transition even in preferKeyState mode.
+        const pressSeq = (keySeqRef.current.get(key.id) ?? 0) + 1;
+        keySeqRef.current.set(key.id, pressSeq);
+        pressedKeyIdsRef.current.add(key.id);
+        sendKeyState('edge');
+
+        const releaseSeq = pressSeq + 1;
+        keySeqRef.current.set(key.id, releaseSeq);
+        pressedKeyIdsRef.current.delete(key.id);
+        sendKeyState('edge');
+        return;
       }
 
       const msg: KeyEventMessage = {
