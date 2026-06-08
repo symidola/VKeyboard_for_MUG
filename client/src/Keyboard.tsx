@@ -679,7 +679,9 @@ export function Keyboard(props: {
                         top: `${absBounds.pad + (y - absBounds.minY) * pitch}px`,
                         width: `${keyWidthPx}px`,
                         height: `${keyHeightPx}px`,
-                        ...(k.shape === 'circle' ? { borderRadius: '50%', zIndex: 1 } : {}),
+                        ...(k.shape === 'circle'
+                          ? { borderRadius: '50%', zIndex: 1, padding: 0, boxSizing: 'border-box' }
+                          : {}),
                       };
 
                       return renderKeyButton(k, style);
