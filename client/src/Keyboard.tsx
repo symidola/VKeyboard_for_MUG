@@ -423,7 +423,7 @@ export function Keyboard(props: {
             const radius = Math.min(r.width, r.height) / 2;
             const ndx = (x - cx) / radius;
             const ndy = (y - cy) / radius;
-            const inCircle = ndx * ndx + ndy * ndy <= 1;
+            const inCircle = ndx * ndx + ndy * ndy <= 1.05;
             const semiOk = !r.key.semiX || (r.key.semiX === 'left' ? x < cx : x >= cx);
             if (inCircle && semiOk) { dx = 0; dy = 0; }
             else if (inCircle && !semiOk) { continue; }

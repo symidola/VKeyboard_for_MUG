@@ -189,7 +189,11 @@ body.vkLockViewport #root {
   background: rgba(255,255,255,0.06) !important;
 }
 
-/* 太鼓 Don 键在 key 基类基础上不做额外覆写，靠绝对布局的 borderRadius:50% 形成鼓面 */
+/* 太鼓 Don 键：移除 padding 确保宽高相等形成正圆形 */
+[data-keyid="k_don_l"],
+[data-keyid="k_don_r"] {
+  padding: 0 !important;
+}
 
 .key:active {
   background: var(--key-active);
