@@ -175,8 +175,8 @@ export function App(): React.ReactElement {
                   editMode={editMode}
                   selectedKeyId={selectedKeyId}
                   onSelectKey={(id) => setSelectedKeyId(id)}
-                  onKeyDown={(k) => sendKey('down', k)}
-                  onKeyUp={(k) => sendKey('up', k)}
+                  onKeyDown={(k) => sendKey(gameModeId === 'taiko' ? 'tap' : 'down', k)}
+                  onKeyUp={(k) => { if (gameModeId !== 'taiko') sendKey('up', k); }}
                 />
 
                 {editMode && (

@@ -381,6 +381,10 @@ export function Keyboard(props: {
     [absBounds, allKeys, gapPx, hasAbsolute, pitch, unitPx],
   );
 
+  // When any key uses semiX, DOM-based resolution is unreliable because
+  // border-radius clipping and stacking means the wrong element may match.
+  const hasSemiX = React.useMemo(() => allKeys.some((k) => k.semiX), [allKeys]);
+
   // 通过目标元素+坐标综合命中按键，支持最近邻兜底和绝对布局命中。
   const resolveKeyFromClientPoint = React.useCallback(
     (
@@ -441,7 +445,7 @@ export function Keyboard(props: {
         return best.dist2 <= tol * tol ? best.key : null;
       };
 
-      if (preferTarget) {
+      if (preferTarget && !hasSemiX) {
         const fromTarget = (target as HTMLElement | null)?.closest?.(KEY_SELECTOR) as HTMLElement | null;
         const fromTargetKeyId = fromTarget?.dataset?.keyid;
         if (fromTargetKeyId) {
@@ -450,10 +454,11 @@ export function Keyboard(props: {
         }
       }
 
-      const fromPoint = document
-        .elementFromPoint(xClient, yClient)
-        ?.closest?.(KEY_SELECTOR) as HTMLElement | null;
-      const fromPointKeyId = fromPoint?.dataset?.keyid;
+      const fromPointKeyId = !hasSemiX
+        ? (document
+            .elementFromPoint(xClient, yClient)
+            ?.closest?.(KEY_SELECTOR) as HTMLElement | null)?.dataset?.keyid
+        : undefined;
       if (fromPointKeyId) {
         const hit = keyById.get(fromPointKeyId);
         if (hit && !hit.semiX) return hit;
