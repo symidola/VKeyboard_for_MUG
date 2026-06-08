@@ -113,7 +113,7 @@ export function normalizeLayout(input: KeyboardLayout): KeyboardLayout {
       keys: r.keys.map((k) => ({
         ...k,
         width: clamp(k.width, 0.5, 12),
-        height: clamp(k.height, 0.5, 6),
+        height: clamp(k.height, 0.5, 12),
         gapBefore: typeof k.gapBefore === 'number' ? clamp(k.gapBefore, 0, 20) : undefined,
         x: typeof k.x === 'number' ? clamp(k.x, -10, 50) : undefined,
         y: typeof k.y === 'number' ? clamp(k.y, -10, 50) : undefined,
