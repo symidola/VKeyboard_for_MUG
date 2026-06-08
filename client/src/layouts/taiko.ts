@@ -1,11 +1,10 @@
 import type { KeyboardMode } from '../modes/schema';
 import { modeToKeyboardLayout } from '../modes/schema';
 
-// Taiko no Tatsujin touch-drum — single drum face.
-// One circle (the drum) centred in the middle, split vertically by semiX.
-// Both Don keys share the same bounding box; right-Don renders on top.
-// elementFromPoint is skipped for semiX keys — detection falls through
-// to coordinate-based logic which picks the correct half.
+// Two semicircles filling their respective halves — left Don covers
+// the full left half as a circle, right Don the full right half.
+// They touch at the centre line x=8.  The four corners of each half
+// are Ka (the rim).  Both Don circles render on top of Ka rects.
 
 export const taikoMode: KeyboardMode = {
   id: 'taiko',
@@ -13,7 +12,7 @@ export const taikoMode: KeyboardMode = {
   unitPx: 60,
   gapPx: 0,
   zones: [
-    // Left Ka — left-half backdrop
+    // Left Ka — left-half backdrop (renders under the Don circle)
     {
       id: 'z_ka_l',
       shape: 'rect',
@@ -31,23 +30,23 @@ export const taikoMode: KeyboardMode = {
       width: 8, height: 9,
       binding: { keyId: 'k_ka_r', label: '咔', code: 'KeyK' },
     },
-    // Left Don — left semicircle of the drum (underneath)
+    // Left Don — fills left half (radius 4, centre x=4 y=4.5)
     {
       id: 'z_don_l',
       shape: 'circle',
       semiX: 'left',
       rowId: 'r2',
-      x: 4, y: 0.5,
+      x: 0, y: 0.5,
       width: 8, height: 8,
       binding: { keyId: 'k_don_l', label: '咚', code: 'KeyF' },
     },
-    // Right Don — right semicircle (same box, renders on top)
+    // Right Don — fills right half (radius 4, centre x=12 y=4.5)
     {
       id: 'z_don_r',
       shape: 'circle',
       semiX: 'right',
       rowId: 'r2',
-      x: 4, y: 0.5,
+      x: 8, y: 0.5,
       width: 8, height: 8,
       binding: { keyId: 'k_don_r', label: '咚', code: 'KeyJ' },
     },
