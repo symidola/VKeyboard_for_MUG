@@ -1,0 +1,39 @@
+- generic [ref=e127]:
+  - generic [ref=e128]:
+    - generic [ref=e129]: VKeyboard for MUG
+    - heading "多游戏触控键盘工作台" [level=1] [ref=e130]
+    - paragraph [ref=e131]: 面向节奏游戏的可扩展触控键盘。在下方选择游戏模式与视觉皮肤后进入演奏。
+    - generic [ref=e132]:
+      - generic [ref=e133]: "WS: connected"
+      - generic [ref=e134]: "Clients: 1"
+  - generic [ref=e135]:
+    - heading "游戏模式" [level=3] [ref=e136]
+    - generic [ref=e137]:
+      - button "四键模式（预留）" [disabled] [ref=e138]
+      - button "七键模式（预留）" [disabled] [ref=e139]
+      - button "DJMAX模式" [ref=e140]
+      - button "太鼓模式" [ref=e141]
+  - generic [ref=e142]:
+    - heading "皮肤" [level=3] [ref=e143]
+    - generic [ref=e144]:
+      - button "默认" [ref=e145]
+      - button "8-bit 像素" [ref=e146]
+      - button "赛博朋克" [ref=e147]
+      - button "深海" [ref=e148]
+      - button "糖果" [ref=e149]
+      - button "森林" [ref=e150]
+      - button "午夜" [ref=e151]
+      - button "骨瓷" [ref=e152]
+  - generic [ref=e153]:
+    - button "键盘 进入演奏键盘视图，直接测试按键链路和触控反馈。 立即进入 赛博朋克 · 太鼓模式" [ref=e154]:
+      - heading "键盘" [level=3] [ref=e155]
+      - paragraph [ref=e156]: 进入演奏键盘视图，直接测试按键链路和触控反馈。
+      - generic [ref=e157]: 立即进入 赛博朋克 · 太鼓模式
+    - button "个性化编辑器 进入布局编辑工作台，调整按键尺寸、位置与映射参数。 开始编辑" [ref=e158]:
+      - heading "个性化编辑器" [level=3] [ref=e159]
+      - paragraph [ref=e160]: 进入布局编辑工作台，调整按键尺寸、位置与映射参数。
+      - generic [ref=e161]: 开始编辑
+    - button "信息页 查看项目状态、模式规划与下一阶段开发方向。 查看详情" [ref=e162]:
+      - heading "信息页" [level=3] [ref=e163]
+      - paragraph [ref=e164]: 查看项目状态、模式规划与下一阶段开发方向。
+      - generic [ref=e165]: 查看详情

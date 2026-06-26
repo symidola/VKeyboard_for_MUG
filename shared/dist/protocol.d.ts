@@ -11,6 +11,10 @@ export interface KeyboardKey {
     x?: number;
     /** Absolute y position in key-units (optional; enables absolute layout). */
     y?: number;
+    /** Hit shape override. Default is 'rect'; 'circle' uses radius from centre. */
+    shape?: 'rect' | 'circle';
+    /** For circle shapes: restrict hit to left or right half (semicircle). */
+    semiX?: 'left' | 'right';
 }
 export interface KeyboardRow {
     id: string;

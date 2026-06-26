@@ -2,3 +2,6 @@
 logs/
 server/logs/
 *.log
+
+# HCI course assignment materials (report, screenshots, scripts)
+about_course_hci/

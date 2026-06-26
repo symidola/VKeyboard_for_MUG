@@ -5,6 +5,7 @@ import path from 'node:path';
 export type AhkRunner = {
   sendLine: (line: string) => void;
   stop: () => void;
+  exited: boolean;
 };
 
 function exists(p: string): boolean {
@@ -17,7 +18,6 @@ function exists(p: string): boolean {
 }
 
 function findAutoHotkeyExe(): string {
-  // Fallback to PATH resolution
   return 'AutoHotkey64.exe';
 }
 
@@ -44,6 +44,7 @@ export function startAhk(params: {
   autoHotkeyExe?: string;
   scriptPath: string;
   verbose?: boolean;
+  onExit?: (code: number | null) => void;
 }): AhkRunner {
   const exe = resolveAutoHotkeyExe(params.autoHotkeyExe);
 
@@ -60,11 +61,37 @@ export function startAhk(params: {
   });
 
   let stopped = false;
+  let exited = false;
+
+  const handleExit = (code: number | null) => {
+    if (stopped) return;
+    stopped = true;
+    exited = true;
+    if (params.verbose) console.error(`[ahk] process exited code=${code}`);
+    params.onExit?.(code);
+  };
+
+  child.on('exit', handleExit);
+  child.on('error', (err) => {
+    if (stopped) return;
+    console.error(`[ahk] process error: ${err.message}`);
+    handleExit(null);
+  });
 
   return {
+    exited: false,
     sendLine(line: string) {
-      if (stopped) return;
-      child.stdin.write(line.replace(/\r?\n/g, '') + '\n');
+      if (stopped || exited) return;
+      try {
+        child.stdin.write(line.replace(/\r?\n/g, '') + '\n');
+      } catch (err: any) {
+        if (err?.code === 'EPIPE' || err?.code === 'ERR_STREAM_DESTROYED') {
+          console.error('[ahk] stdin write failed, process appears dead');
+          handleExit(null);
+        } else {
+          throw err;
+        }
+      }
     },
     stop() {
       if (stopped) return;

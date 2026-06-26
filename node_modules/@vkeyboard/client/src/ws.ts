@@ -2,7 +2,35 @@ import type { ClientRole, ClientToServerMessage, ServerToClientMessage } from '@
 
 export type WsStatus = 'disconnected' | 'connecting' | 'connected';
 
+function isValidWsUrl(raw: string | null): raw is string {
+  if (!raw) return false;
+  return /^wss?:\/\//i.test(raw);
+}
+
+function readWsOverride(): string | null {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    const fromQuery = qs.get('ws');
+    if (isValidWsUrl(fromQuery)) {
+      localStorage.setItem('vk_ws_url', fromQuery);
+      return fromQuery;
+    }
+
+    const fromStorage = localStorage.getItem('vk_ws_url');
+    if (isValidWsUrl(fromStorage)) return fromStorage;
+  } catch {
+    // ignore
+  }
+
+  const fromEnv = (import.meta as any).env?.VITE_WS_URL as string | undefined;
+  if (isValidWsUrl(fromEnv ?? null)) return fromEnv ?? null;
+  return null;
+}
+
 export function makeWsUrl(): string {
+  const override = readWsOverride();
+  if (override) return override;
+
   const isSecure = window.location.protocol === 'https:';
   const host = window.location.hostname;
   const proto = isSecure ? 'wss' : 'ws';
